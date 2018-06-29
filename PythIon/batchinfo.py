@@ -9,7 +9,7 @@ class batchprocesser(QtGui.QWidget):
     def __init__(self, master=None):
         QtGui.QWidget.__init__(self,master)
         self.uibp = Ui_batchinfodialog()
-        self.uibp.setupUi(self)
+        self.uibp.setup_ui(self)
         
         self.uibp.cancelbutton.clicked.connect(self.close)
         

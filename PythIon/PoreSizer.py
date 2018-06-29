@@ -10,7 +10,7 @@ class PoreSizer(QtGui.QWidget):
     def __init__(self, master=None):
         QtGui.QWidget.__init__(self,master)
         self.uips = Ui_PoreSizerWidget()
-        self.uips.setupUi(self)
+        self.uips.setup_ui(self)
         
         self.uips.compute_button.clicked.connect(self.sizepore)
         

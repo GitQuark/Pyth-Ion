@@ -25,14 +25,14 @@ Note: j.s.nowacki@gmail.com has a C++ library with SWIG bindings which also
 reads abf files - would be good to cross-check
 """
 
-import struct
+import numpy as np
 import datetime
+import struct
 import os
 import io
 
-import numpy as np
 
-class struct_file(io.BufferedReader):
+class StructFile(io.BufferedReader):
     def read_f(self, fmt, offset=None):
         if offset is not None:
             self.seek(offset)
@@ -44,7 +44,7 @@ class struct_file(io.BufferedReader):
         self.write(struct.pack(fmt, *args))
 
 
-def reformat_integer_V1(data, nbchannel, header):
+def reformat_integer_v1(data, nbchannel, header):
     """
     reformat when dtype is int16 for ABF version 1
     """
@@ -62,7 +62,7 @@ def reformat_integer_V1(data, nbchannel, header):
         data[:, n] -= header['fSignalOffset'][i]
 
 
-def reformat_integer_V2(data, nbchannel, header):
+def reformat_integer_v2(data, nbchannel, header):
     """
     reformat when dtype is int16 for ABF version 2
     """
@@ -93,7 +93,7 @@ def read_header(filename):
         dictEpochInfoPerDAC  (ABF2)
     that contain more information.
     """
-    fid = struct_file(io.open(filename, 'rb'))  # fix for py3
+    fid = StructFile(io.open(filename, 'rb'))  # fix for py3
 
     # version
     fFileSignature = fid.read(4)
