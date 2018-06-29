@@ -12,7 +12,7 @@ from scipy import io as spio
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PythIon.plotguiuniversal import *
 # from PlotGUI import *
-import PythIon.pyqtgraph as pg  # TODO: figure out where this went
+import pyqtgraph as pg
 import pandas.io.parsers
 import pandas as pd
 from PythIon.abfheader import *
@@ -123,7 +123,7 @@ class GUIForm(QtWidgets.QMainWindow):
 
         def load_logo():
             dir_path = os.path.dirname(os.path.realpath(__file__))
-            logo = ndimage.imread(dir_path + os.sep + "pythionlogo.png")
+            logo = ndimage.imread(dir_path + os.sep.join(["", "Assets", "pythionlogo.png"]))
             logo = np.rot90(logo, -1)
             logo = pg.ImageItem(logo)
             return logo
@@ -144,9 +144,7 @@ class GUIForm(QtWidgets.QMainWindow):
         #        self.w6.setLabel('bottom', text='Frequency (Hz)')
         #        self.w6.setLabel('left', text='PSD (pA^2/Hz)')
 
-
         # Initializing various variables used for analysis
-
         self.wd = os.getcwd()
         self.data_file_name = []
         self.lr = []
@@ -162,6 +160,7 @@ class GUIForm(QtWidgets.QMainWindow):
         self.colors = []
         self.sdf = pd.DataFrame(columns=['fn', 'color', 'deli', 'frac',
                                          'dwell', 'dt', 'startpoints', 'endpoints'])
+        self.analyze_type = 'coarse'
 
         self.batch_info = pd.DataFrame(columns=list(['cutstart', 'cutend']))
         self.total_plot_points = len(self.p2.data)
@@ -169,33 +168,41 @@ class GUIForm(QtWidgets.QMainWindow):
         self.CHIMERAfile = np.dtype('<u2')
 
     def load(self, load_and_plot=True):
+        ui = self.ui
+        p3 = self.p3
+        p2 = self.p2
+        # TODO: This may break it
         self.catdata = []
-        self.p3.clear()
-        self.p3.setLabel('bottom', text='Current', units='A', unitprefix='n')
-        self.p3.setLabel('left', text='', units='Counts')
-        self.p3.setAspectLocked(False)
+
+        p3.clear()
+        p3.setLabel('bottom', text='Current', units='A', unitprefix='n')
+        p3.setLabel('left', text='', units='Counts')
+        p3.setAspectLocked(False)
 
         colors = np.array(self.sdf.color)
         for i in range(len(colors)):
             colors[i] = pg.Color(colors[i])
 
-        self.p2.setBrush(colors, mask=None)
+        p2.setBrush(colors, mask=None)
 
-        self.ui.eventinfolabel.clear()
-        self.ui.eventcounterlabel.clear()
-        self.ui.meandelilabel.clear()
-        self.ui.meandwelllabel.clear()
-        self.ui.meandtlabel.clear()
-        self.ui.eventnumberentry.setText(str(0))
+        ui.eventinfolabel.clear()
+        ui.eventcounterlabel.clear()
+        ui.meandelilabel.clear()
+        ui.meandwelllabel.clear()
+        ui.meandtlabel.clear()
+        ui.eventnumberentry.setText(str(0))
 
-        self.threshold = np.float64(self.ui.thresholdentry.text()) * 10 ** -9
-        self.ui.filelabel.setText(self.data_file_name)
+        float_tol = 10 ** -9  # I may be completely misunderstanding this
+        self.threshold = np.float64(self.ui.thresholdentry.text()) * float_tol
+        ui.filelabel.setText(self.data_file_name)
         print(self.data_file_name)
+        # TODO: Remove the magic numbers (1000 specifically)
         self.LPfiltercutoff = np.float64(self.ui.LPentry.text()) * 1000
         self.outputsamplerate = np.float64(
             self.ui.outputsamplerateentry.text()) * 1000  # use integer multiples of 4166.67 ie 2083.33 or 1041.67
 
-        if str(os.path.splitext(self.data_file_name)[1]) == '.log':
+        file_type = str(os.path.splitext(self.data_file_name)[1])
+        if file_type == '.log':
             self.CHIMERAfile = np.dtype('<u2')
             self.data = np.fromfile(self.data_file_name, self.CHIMERAfile)
 
@@ -226,7 +233,7 @@ class GUIForm(QtWidgets.QMainWindow):
 
             self.data = signal.filtfilt(b, a, self.data)
 
-        if str(os.path.splitext(self.data_file_name)[1]) == '.opt':
+        elif file_type == '.opt':
             self.data = np.fromfile(self.data_file_name, dtype=np.dtype('>d'))
             self.matfilename = str(os.path.splitext(self.data_file_name)[0])
             try:
@@ -278,17 +285,17 @@ class GUIForm(QtWidgets.QMainWindow):
             else:
                 print('Filter value too high, data not filtered')
 
-        if str(os.path.splitext(self.data_file_name)[1]) == '.txt':
+        elif file_type == '.txt':
             self.data = pandas.io.parsers.read_csv(self.data_file_name, skiprows=1)
             #            self.data=np.reshape(np.array(self.data),np.size(self.data))*10**9
             self.data = np.reshape(np.array(self.data), np.size(self.data))
             self.matfilename = str(os.path.splitext(self.data_file_name)[0])
 
-        if str(os.path.splitext(self.data_file_name)[1]) == '.npy':
+        elif file_type == '.npy':
             self.data = np.load(self.data_file_name)
             self.matfilename = str(os.path.splitext(self.data_file_name)[0])
 
-        if str(os.path.splitext(self.data_file_name)[1]) == '.abf':
+        elif file_type == '.abf':
             f = open(self.data_file_name, "rb")  # reopen the file
             f.seek(6144, os.SEEK_SET)
             self.data = np.fromfile(f, dtype=np.dtype('<i2'))
@@ -350,7 +357,7 @@ class GUIForm(QtWidgets.QMainWindow):
             # skips plotting first and last two points, there was a weird spike issue
             self.p1.plot(self.t[2:][:-2], self.data[2:][:-2], pen='b')
 
-            if str(os.path.splitext(self.data_file_name)[1]) != '.abf':
+            if file_type != '.abf':
                 self.p1.addLine(y=self.baseline, pen='g')
                 self.p1.addLine(y=self.threshold, pen='r')
 
@@ -375,18 +382,18 @@ class GUIForm(QtWidgets.QMainWindow):
         try:
             # attempt to open dialog from most recent directory
             self.data_file_name = QtWidgets.QFileDialog.getOpenFileName(self, 'Open file', self.wd,
-                                                                        ("*.log;*.opt;*.npy;*.abf"))
+                                                                        "*.log;*.opt;*.npy;*.abf")
             if self.data_file_name != ('', ''):
                 self.data_file_name = self.data_file_name[0]
                 self.wd = os.path.dirname(self.data_file_name)
                 self.load()
         except IOError:
-            #### if user cancels during file selection, exit loop#############
+            # if user cancels during file selection, exit loop
             pass
 
     def analyze(self):
-        global startpoints, endpoints, mins
-        self.analyzetype = 'coarse'
+        startpoints, endpoints, mins = None, None, None
+        self.analyze_type = 'coarse'
         self.w2.clear()
         self.w3.clear()
         self.w4.clear()
@@ -587,7 +594,7 @@ class GUIForm(QtWidgets.QMainWindow):
         # Correct for user error if non-extistent number is entered
         eventbuffer = np.int(self.ui.eventbufferentry.text())
         firstindex = self.sdf.fn[self.sdf.fn == self.matfilename].index[0]
-        if clicked == []:
+        if not clicked:
             eventnumber = np.int(self.ui.eventnumberentry.text())
         else:
             eventnumber = clicked - firstindex
@@ -739,7 +746,7 @@ class GUIForm(QtWidgets.QMainWindow):
                 self.ui.eventcounterlabel.setText('Baseline=' + str(round(self.baseline * 10 ** 9, 2)) + ' nA')
 
             self.p1.plot(self.t, self.data, pen='b')
-            if str(os.path.splitext(self.data_file_name)[1]) != '.abf':
+            if file_type != '.abf':
                 self.p1.addLine(y=self.baseline, pen='g')
                 self.p1.addLine(y=self.threshold, pen='r')
             self.lr = []
@@ -866,10 +873,10 @@ class GUIForm(QtWidgets.QMainWindow):
             hist = pg.BarGraphItem(height=dty, x0=dtx[:-1], x1=dtx[1:], brush=x)
             self.w5.addItem(hist)
 
-        if self.analyzetype == 'coarse':
+        if self.analyze_type == 'coarse':
             self.save()
             self.savetarget()
-        if self.analyzetype == 'fine':
+        if self.analyze_type == 'fine':
             np.savetxt(self.matfilename + 'llDB.txt',
                        np.column_stack((self.deli, self.frac, self.dwell, self.dt, self.noise)),
                        delimiter='\t', header="deli" + '\t' + "frac" + '\t' + "dwell" + '\t' + "dt" + '\t' + 'stdev')
@@ -921,7 +928,7 @@ class GUIForm(QtWidgets.QMainWindow):
                    header="dI" + '\t' + "fr" + '\t' + "dw" + '\t' + "dt" + '\t' + 'stdev')
 
     def nextfile(self):
-        if str(os.path.splitext(self.data_file_name)[1]) == '.log':
+        if file_type == '.log':
             startindex = self.matfilename[-6::]
             filebase = self.matfilename[0:len(self.matfilename) - 6]
             nextindex = str(int(startindex) + 1)
@@ -934,7 +941,7 @@ class GUIForm(QtWidgets.QMainWindow):
                 self.data_file_name = (filebase + nextindex + '.log')
                 self.load()
 
-        if str(os.path.splitext(self.data_file_name)[1]) == '.abf':
+        if file_type == '.abf':
             startindex = self.matfilename[-4::]
             filebase = self.matfilename[0:len(self.matfilename) - 4]
             nextindex = str(int(startindex) + 1).zfill(4)
@@ -948,7 +955,7 @@ class GUIForm(QtWidgets.QMainWindow):
                 self.load()
 
     def previousfile(self):
-        if str(os.path.splitext(self.data_file_name)[1]) == '.log':
+        if file_type == '.log':
             startindex = self.matfilename[-6::]
             filebase = self.matfilename[0:len(self.matfilename) - 6]
             nextindex = str(int(startindex) - 1)
@@ -961,7 +968,7 @@ class GUIForm(QtWidgets.QMainWindow):
                 self.data_file_name = (filebase + nextindex + '.log')
                 self.load()
 
-        if str(os.path.splitext(self.data_file_name)[1]) == '.abf':
+        if file_type == '.abf':
             startindex = self.matfilename[-4::]
             filebase = self.matfilename[0:len(self.matfilename) - 4]
             nextindex = str(int(startindex) - 1).zfill(4)
@@ -1125,7 +1132,7 @@ class GUIForm(QtWidgets.QMainWindow):
 
     def batchinfodialog(self):
         self.p1.clear()
-        self.bp = batchprocesser()
+        self.bp = BatchProcessor()
         self.bp.show()
 
         try:
@@ -1144,7 +1151,7 @@ class GUIForm(QtWidgets.QMainWindow):
 
     def batchprocess(self):
         global endpoints, startpoints
-        self.analyzetype = 'fine'
+        self.analyze_type = 'fine'
 
         invertstatus = self.bp.uibp.invertCheckBox.isChecked()
         self.bp.close()
