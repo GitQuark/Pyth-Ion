@@ -22,6 +22,30 @@ from PythIon.batchinfo import *
 from PythIon.loadmat import *
 
 
+def bound(num, lower, upper):
+    if lower and upper:
+        num = max(lower, min(upper, num))
+    elif lower:
+        num = max(lower, num)
+    elif upper:
+        num = min(num, upper)
+
+    return num
+
+
+def num_from_text_element(element, lower=None, upper=None, default=0):
+    # TODO: Check element is correct type
+    try:
+        num_input = int(element.text()) + 1
+    except ValueError:
+        # User tried to enter something other than a number into event num text box
+        element.setText(str(default))
+        return default
+    bounded_num_input = bound(num_input, lower, upper)
+    element.setText(str(bounded_num_input))
+    return bounded_num_input
+
+
 class GUIForm(QtWidgets.QMainWindow):
 
     def __init__(self, width, height, master=None):
@@ -35,25 +59,25 @@ class GUIForm(QtWidgets.QMainWindow):
             ui.setup_ui(form)
 
             # Linking buttons to main functions
-            ui.loadbutton.clicked.connect(form.getfile)
+            ui.loadbutton.clicked.connect(form.get_file)
             ui.analyzebutton.clicked.connect(form.analyze)
             ui.cutbutton.clicked.connect(form.cut)
-            ui.baselinebutton.clicked.connect(form.baselinecalc)
-            ui.clearscatterbutton.clicked.connect(form.clearscatter)
-            ui.deleteeventbutton.clicked.connect(form.deleteevent)
-            ui.invertbutton.clicked.connect(form.invertdata)
-            ui.concatenatebutton.clicked.connect(form.concatenatetext)
-            ui.nextfilebutton.clicked.connect(form.nextfile)
-            ui.previousfilebutton.clicked.connect(form.previousfile)
-            ui.showcatbutton.clicked.connect(form.showcattrace)
-            ui.savecatbutton.clicked.connect(form.savecattrace)
+            ui.baselinebutton.clicked.connect(form.base_line_calc)
+            ui.clearscatterbutton.clicked.connect(form.clear_scatter)
+            ui.deleteeventbutton.clicked.connect(form.delete_event)
+            ui.invertbutton.clicked.connect(form.invert_data)
+            ui.concatenatebutton.clicked.connect(form.concatenate_text)
+            ui.nextfilebutton.clicked.connect(form.next_file)
+            ui.previousfilebutton.clicked.connect(form.previous_file)
+            ui.showcatbutton.clicked.connect(form.show_cat_trace)
+            ui.savecatbutton.clicked.connect(form.save_cat_trace)
             ui.gobutton.clicked.connect(form.inspect_event)
             ui.previousbutton.clicked.connect(form.previous_event)
             ui.nextbutton.clicked.connect(form.next_event)
-            ui.savefitsbutton.clicked.connect(form.saveeventfits)
+            ui.savefitsbutton.clicked.connect(form.save_event_fits)
             ui.fitbutton.clicked.connect(form.CUSUM)
-            ui.Poresizeraction.triggered.connect(form.sizethepore)
-            ui.actionBatch_Process.triggered.connect(form.batchinfodialog)
+            ui.Poresizeraction.triggered.connect(form.size_the_pore)
+            ui.actionBatch_Process.triggered.connect(form.batch_info_dialog)
 
             # Setting up plotting elements and their respective options
             # TODO: Make list of plots (Setting all to white I assume)
@@ -161,6 +185,10 @@ class GUIForm(QtWidgets.QMainWindow):
         self.sdf = pd.DataFrame(columns=['fn', 'color', 'deli', 'frac',
                                          'dwell', 'dt', 'startpoints', 'endpoints'])
         self.analyze_type = 'coarse'
+        self.num_events = 0
+        self.pore_size = None
+        self.batch_processor = None
+        self.file_list = None
 
         self.batch_info = pd.DataFrame(columns=list(['cutstart', 'cutend']))
         self.total_plot_points = len(self.p2.data)
@@ -190,7 +218,7 @@ class GUIForm(QtWidgets.QMainWindow):
         ui.meandelilabel.clear()
         ui.meandwelllabel.clear()
         ui.meandtlabel.clear()
-        ui.eventnumberentry.setText(str(0))
+        ui.eventnumberentry.setText(str(1))
 
         float_tol = 10 ** -9  # I may be completely misunderstanding this
         self.threshold = np.float64(self.ui.thresholdentry.text()) * float_tol
@@ -280,7 +308,7 @@ class GUIForm(QtWidgets.QMainWindow):
 
             elif self.LPfiltercutoff < 100e3:
                 Wn = round(self.LPfiltercutoff / (100 * 10 ** 3 / 2), 4)
-                b, a = signal.bessel(4, Wn, btype='low');
+                b, a = signal.bessel(4, Wn, btype='low')
                 self.data = signal.filtfilt(b, a, self.data)
             else:
                 print('Filter value too high, data not filtered')
@@ -377,7 +405,7 @@ class GUIForm(QtWidgets.QMainWindow):
     #        self.w6.plot(x = f[1:], y = Pxx_den[1:], pen = 'b')
     #        self.w6.setXRange(0,np.log10(self.outputsamplerate))
 
-    def getfile(self):
+    def get_file(self):
 
         try:
             # attempt to open dialog from most recent directory
@@ -461,19 +489,19 @@ class GUIForm(QtWidgets.QMainWindow):
 
         startpoints = startpoints[startpoints != 0]  # delete those events marked for
         endpoints = endpoints[endpoints != 0]  # deletion earlier
-        self.numberofevents = len(startpoints)
+        self.num_events = len(startpoints)
 
         if len(startpoints) > len(endpoints):
             startpoints = np.delete(startpoints, -1)
-            self.numberofevents = len(startpoints)
+            self.num_events = len(startpoints)
 
         # Now we want to move the endpoints to be the last minimum for each
         # event so we find all minimas for each event, and set endpoint to last
 
-        self.deli = np.zeros(self.numberofevents)
-        self.dwell = np.zeros(self.numberofevents)
+        self.deli = np.zeros(self.num_events)
+        self.dwell = np.zeros(self.num_events)
 
-        for i in range(self.numberofevents):
+        for i in range(self.num_events):
             mins = np.array(signal.argrelmin(self.data[startpoints[i]:endpoints[i]])[0] + startpoints[i])
             mins = mins[self.data[mins] < self.baseline - 4 * self.var]
             if len(mins) == 1:
@@ -493,7 +521,7 @@ class GUIForm(QtWidgets.QMainWindow):
         self.frac = self.deli / self.baseline
         self.dt = np.array(0)
         self.dt = np.append(self.dt, np.diff(startpoints) / self.outputsamplerate)
-        self.numberofevents = len(self.dt)
+        self.num_events = len(self.dt)
         self.noise = (10 ** 10) * np.array([np.std(self.data[x:endpoints[i]]) for i, x in enumerate(startpoints)])
 
         self.p1.clear()
@@ -504,10 +532,10 @@ class GUIForm(QtWidgets.QMainWindow):
         self.p1.plot(self.t[startpoints], self.data[startpoints], pen=None, symbol='o', symbolBrush='g', symbolSize=10)
         self.p1.plot(self.t[endpoints], self.data[endpoints], pen=None, symbol='o', symbolBrush='r', symbolSize=10)
 
-        self.ui.eventcounterlabel.setText('Events:' + str(self.numberofevents))
+        self.ui.eventcounterlabel.setText('Events:' + str(self.num_events))
         self.ui.meandelilabel.setText('Deli:' + str(round(np.mean(self.deli * 10 ** 9), 2)) + ' nA')
         self.ui.meandwelllabel.setText('Dwell:' + str(round(np.median(self.dwell), 2)) + u' μs')
-        self.ui.meandtlabel.setText('Rate:' + str(round(self.numberofevents / self.t[-1], 1)) + ' events/s')
+        self.ui.meandtlabel.setText('Rate:' + str(round(self.num_events / self.t[-1], 1)) + ' events/s')
 
         try:
             self.p2.data = self.p2.data[np.where(np.array(self.sdf.fn) != self.matfilename)]
@@ -515,8 +543,8 @@ class GUIForm(QtWidgets.QMainWindow):
             IndexError
         self.sdf = self.sdf[self.sdf.fn != self.matfilename]
 
-        fn = pd.Series([self.matfilename, ] * self.numberofevents)
-        color = pd.Series([pg.colorTuple(self.cb.color()), ] * self.numberofevents)
+        fn = pd.Series([self.matfilename, ] * self.num_events)
+        color = pd.Series([pg.colorTuple(self.cb.color()), ] * self.num_events)
 
         self.sdf = self.sdf.append(pd.DataFrame({'fn': fn, 'color': color, 'deli': self.deli,
                                                  'frac': self.frac, 'dwell': self.dwell,
@@ -577,14 +605,18 @@ class GUIForm(QtWidgets.QMainWindow):
             self.w5.addItem(hist)
 
         self.save()
-        self.savetarget()
+        self.save_target()
 
     def save(self):
         np.savetxt(self.matfilename + 'DB.txt',
                    np.column_stack((self.deli, self.frac, self.dwell, self.dt, self.noise)), delimiter='\t',
                    header="deli" + '\t' + "frac" + '\t' + "dwell" + '\t' + "dt" + '\t' + 'stdev')
 
+    # Called by Go button
+    # TODO: Continue cleanump and input sanitizing
     def inspect_event(self, clicked=[]):
+        if not self.num_events:
+            return
 
         # Reset plot
         self.p3.setLabel('bottom', text='Time', units='s')
@@ -592,29 +624,29 @@ class GUIForm(QtWidgets.QMainWindow):
         self.p3.clear()
 
         # Correct for user error if non-extistent number is entered
-        eventbuffer = np.int(self.ui.eventbufferentry.text())
-        firstindex = self.sdf.fn[self.sdf.fn == self.matfilename].index[0]
+        event_buffer = num_from_text_element(self.ui.eventbufferentry, default=1000)
+        first_index = self.sdf.fn[self.sdf.fn == self.matfilename].index[0]
         if not clicked:
-            eventnumber = np.int(self.ui.eventnumberentry.text())
+            event_number = int(self.ui.eventnumberentry.text())
         else:
-            eventnumber = clicked - firstindex
-            self.ui.eventnumberentry.setText(str(eventnumber))
-        if eventnumber >= self.numberofevents:
-            eventnumber = self.numberofevents - 1
-            self.ui.eventnumberentry.setText(str(eventnumber))
+            event_number = clicked - first_index
+            self.ui.eventnumberentry.setText(str(event_number))
+        if event_number >= self.num_events:
+            event_number = self.num_events - 1
+            self.ui.eventnumberentry.setText(str(event_number))
 
         # plot event trace
-        self.p3.plot(self.t[int(startpoints[eventnumber] - eventbuffer):int(endpoints[eventnumber] + eventbuffer)],
-                     self.data[int(startpoints[eventnumber] - eventbuffer):int(endpoints[eventnumber] + eventbuffer)],
+        self.p3.plot(self.t[int(startpoints[event_number] - event_buffer):int(endpoints[event_number] + event_buffer)],
+                     self.data[int(startpoints[event_number] - event_buffer):int(endpoints[event_number] + event_buffer)],
                      pen='b')
 
         # plot event fit
-        self.p3.plot(self.t[int(startpoints[eventnumber] - eventbuffer):int(endpoints[eventnumber] + eventbuffer)],
+        self.p3.plot(self.t[int(startpoints[event_number] - event_buffer):int(endpoints[event_number] + event_buffer)],
                      np.concatenate((
-                         np.repeat(np.array([self.baseline]), eventbuffer),
-                         np.repeat(np.array([self.baseline - self.deli[eventnumber
-                         ]]), endpoints[eventnumber] - startpoints[eventnumber]),
-                         np.repeat(np.array([self.baseline]), eventbuffer)), 0),
+                         np.repeat(np.array([self.baseline]), event_buffer),
+                         np.repeat(np.array([self.baseline - self.deli[event_number
+                         ]]), endpoints[event_number] - startpoints[event_number]),
+                         np.repeat(np.array([self.baseline]), event_buffer)), 0),
                      pen=pg.mkPen(color=(173, 27, 183), width=3))
 
         self.p3.autoRange()
@@ -623,20 +655,20 @@ class GUIForm(QtWidgets.QMainWindow):
         colors = np.array(self.sdf.color)
         for i in range(len(colors)):
             colors[i] = pg.Color(colors[i])
-        colors[firstindex + eventnumber] = pg.mkColor('r')
+        colors[first_index + event_number] = pg.mkColor('r')
 
         self.p2.setBrush(colors, mask=None)
 
         # Mark event start and end points
-        self.p3.plot([self.t[int(startpoints[eventnumber])], self.t[int(startpoints[eventnumber])]],
-                     [self.data[int(startpoints[eventnumber])], self.data[int(startpoints[eventnumber])]], pen=None,
+        self.p3.plot([self.t[int(startpoints[event_number])], self.t[int(startpoints[event_number])]],
+                     [self.data[int(startpoints[event_number])], self.data[int(startpoints[event_number])]], pen=None,
                      symbol='o', symbolBrush='g', symbolSize=12)
-        self.p3.plot([self.t[int(endpoints[eventnumber])], self.t[int(endpoints[eventnumber])]],
-                     [self.data[int(endpoints[eventnumber])], self.data[int(endpoints[eventnumber])]], pen=None,
+        self.p3.plot([self.t[int(endpoints[event_number])], self.t[int(endpoints[event_number])]],
+                     [self.data[int(endpoints[event_number])], self.data[int(endpoints[event_number])]], pen=None,
                      symbol='o', symbolBrush='r', symbolSize=12)
 
-        self.ui.eventinfolabel.setText('Dwell Time=' + str(round(self.dwell[eventnumber], 2)) + u' μs,   Deli=' + str(
-            round(self.deli[eventnumber] * 10 ** 9, 2)) + ' nA')
+        self.ui.eventinfolabel.setText('Dwell Time=' + str(round(self.dwell[event_number], 2)) + u' μs,   Deli=' + str(
+            round(self.deli[event_number] * 10 ** 9, 2)) + ' nA')
 
     #        if self.ui.cusumstepentry.text() != 'None':
     #
@@ -680,23 +712,20 @@ class GUIForm(QtWidgets.QMainWindow):
     # ########################################################################
 
     def next_event(self):
-        eventnumber = np.int(self.ui.eventnumberentry.text())
-
-        if eventnumber >= self.numberofevents - 1:
-            eventnumber = 0
-        else:
-            eventnumber = np.int(self.ui.eventnumberentry.text()) + 1
-        self.ui.eventnumberentry.setText(str(eventnumber))
+        element = self.ui.eventnumberentry
+        num_from_text_element(element, 1, self.num_events, default=1)
+        # Ignore command if there are no events
+        if not self.num_events:
+            return
         self.inspect_event()
 
     def previous_event(self):
+        element = self.ui.eventnumberentry
+        num_from_text_element(element, 1, self.num_events, default=1)
+        # Ignore command if there are no events
+        if not self.num_events:
+            return
 
-        # event_number = np.int(self.ui.eventnumberentry.text())
-
-        event_number = np.int(self.ui.eventnumberentry.text()) - 1
-        if event_number < 0:
-            event_number = self.numberofevents - 1
-        self.ui.eventnumberentry.setText(str(event_number))
         self.inspect_event()
 
     def cut(self):
@@ -762,7 +791,7 @@ class GUIForm(QtWidgets.QMainWindow):
             cf = pd.DataFrame([cutregion], columns=list(['cutstart', 'cutend']))
             self.batch_info = self.batch_info.append(cf, ignore_index=True)
 
-    def baselinecalc(self):
+    def base_line_calc(self):
         if self.lr == []:
             self.p1.clear()
             self.lr = pg.LinearRegionItem()
@@ -790,7 +819,7 @@ class GUIForm(QtWidgets.QMainWindow):
             self.ui.eventcounterlabel.setText('Baseline=' + str(round(self.baseline * 10 ** 9, 2)) + ' nA')
             self.p1.autoRange()
 
-    def clearscatter(self):
+    def clear_scatter(self):
         self.p2.setData(x=[], y=[])
         self.last_event = []
         self.ui.scatterplot.update()
@@ -801,12 +830,12 @@ class GUIForm(QtWidgets.QMainWindow):
         self.sdf = pd.DataFrame(columns=['fn', 'color', 'deli', 'frac',
                                          'dwell', 'dt', 'startpoints', 'endpoints'])
 
-    def deleteevent(self):
+    def delete_event(self):
         global startpoints, endpoints
         eventnumber = np.int(self.ui.eventnumberentry.text())
         firstindex = self.sdf.fn[self.sdf.fn == self.matfilename].index[0]
-        if eventnumber > self.numberofevents:
-            eventnumber = self.numberofevents - 1
+        if eventnumber > self.num_events:
+            eventnumber = self.num_events - 1
             self.ui.eventnumberentry.setText(str(eventnumber))
         self.deli = np.delete(self.deli, eventnumber)
         self.dwell = np.delete(self.dwell, eventnumber)
@@ -820,8 +849,8 @@ class GUIForm(QtWidgets.QMainWindow):
         endpoints = np.delete(endpoints, eventnumber)
         self.p2.data = np.delete(self.p2.data, firstindex + eventnumber)
 
-        self.numberofevents = len(self.dt)
-        self.ui.eventcounterlabel.setText('Events:' + str(self.numberofevents))
+        self.num_events = len(self.dt)
+        self.ui.eventcounterlabel.setText('Events:' + str(self.num_events))
 
         self.sdf = self.sdf.drop(firstindex + eventnumber).reset_index(drop=True)
         self.inspect_event()
@@ -875,13 +904,13 @@ class GUIForm(QtWidgets.QMainWindow):
 
         if self.analyze_type == 'coarse':
             self.save()
-            self.savetarget()
+            self.save_target()
         if self.analyze_type == 'fine':
             np.savetxt(self.matfilename + 'llDB.txt',
                        np.column_stack((self.deli, self.frac, self.dwell, self.dt, self.noise)),
                        delimiter='\t', header="deli" + '\t' + "frac" + '\t' + "dwell" + '\t' + "dt" + '\t' + 'stdev')
 
-    def invertdata(self):
+    def invert_data(self):
         self.p1.clear()
         self.data = -self.data
 
@@ -906,7 +935,7 @@ class GUIForm(QtWidgets.QMainWindow):
         else:
             self.inspect_event(clickedindex)
 
-    def concatenatetext(self):
+    def concatenate_text(self):
         if self.wd == []:
             textfilenames = QtGui.QFileDialog.getOpenFileNames(self, 'Open file', '*.txt')[0]
             self.wd = os.path.dirname(textfilenames[0])
@@ -927,7 +956,7 @@ class GUIForm(QtWidgets.QMainWindow):
         np.savetxt(str(newfilename), newtextdata, delimiter='\t',
                    header="dI" + '\t' + "fr" + '\t' + "dw" + '\t' + "dt" + '\t' + 'stdev')
 
-    def nextfile(self):
+    def next_file(self):
         if file_type == '.log':
             startindex = self.matfilename[-6::]
             filebase = self.matfilename[0:len(self.matfilename) - 6]
@@ -954,7 +983,7 @@ class GUIForm(QtWidgets.QMainWindow):
                 self.data_file_name = (filebase + nextindex + '.abf')
                 self.load()
 
-    def previousfile(self):
+    def previous_file(self):
         if file_type == '.log':
             startindex = self.matfilename[-6::]
             filebase = self.matfilename[0:len(self.matfilename) - 6]
@@ -981,16 +1010,16 @@ class GUIForm(QtWidgets.QMainWindow):
                 self.data_file_name = (filebase + nextindex + '.abf')
                 self.load()
 
-    def savetrace(self):
+    def save_trace(self):
         self.data.astype('d').tofile(self.matfilename + '_trace.bin')
 
-    def showcattrace(self):
+    def show_cat_trace(self):
         eventbuffer = np.int(self.ui.eventbufferentry.text())
-        numberofevents = len(self.dt)
+        num_events = len(self.dt)
 
         self.p1.clear()
         eventtime = [0]
-        for i in range(numberofevents):
+        for i in range(num_events):
             if i < numberofevents - 1:
                 if endpoints[i] + eventbuffer > startpoints[i + 1]:
                     print('overlapping event')
@@ -1006,7 +1035,7 @@ class GUIForm(QtWidgets.QMainWindow):
 
         self.p1.autoRange()
 
-    def savecattrace(self):
+    def save_cat_trace(self):
         eventbuffer = np.int(self.ui.eventbufferentry.text())
         numberofevents = len(self.dt)
         self.catdata = self.data[startpoints[0] - eventbuffer:endpoints[0] + eventbuffer]
@@ -1034,9 +1063,9 @@ class GUIForm(QtWidgets.QMainWindow):
     def keyPressEvent(self, event):
         key = event.key()
         if key == QtCore.Qt.Key_Up:
-            self.nextfile()
+            self.next_file()
         if key == QtCore.Qt.Key_Down:
-            self.previousfile()
+            self.previous_file()
         if key == QtCore.Qt.Key_Right:
             self.next_event()
         if key == QtCore.Qt.Key_Left:
@@ -1046,9 +1075,9 @@ class GUIForm(QtWidgets.QMainWindow):
         if key == QtCore.Qt.Key_Space:
             self.analyze()
         if key == QtCore.Qt.Key_Delete:
-            self.deleteevent()
+            self.delete_event()
 
-    def saveeventfits(self):
+    def save_event_fits(self):
         eventbuffer = np.int(self.ui.eventbufferentry.text())
         numberofevents = len(self.dt)
         self.catdata = self.data[startpoints[0] - eventbuffer:endpoints[0] + eventbuffer]
@@ -1108,17 +1137,11 @@ class GUIForm(QtWidgets.QMainWindow):
                 pass
 
         cusumlines.astype('d').tofile(self.matfilename + '_cusum.bin')
-        self.savetrace()
+        self.save_trace()
 
         print("Cusum Params" + str(cusum[self.threshold], cusum['stepsize']))
 
-    #        amp = np.abs(cusum['jumps']*10**12)*10**9
-    #        ampy, ampx = np.histogram(amp,bins=np.linspace(0, np.max(amp), 100))
-    #        hist = pg.BarGraphItem(height = ampy, x0 = ampx[:-1], x1 = ampx[1:])
-    #        levelplot = pg.plot()
-    #        levelplot.addItem(hist)
-
-    def savetarget(self):
+    def save_target(self):
         cutstart = self.batch_info["cutstart"]
         cutend = self.batch_info["cutend"]
         self.batch_info = pd.DataFrame({'cutstart': cutstart, 'cutend': cutend})
@@ -1130,26 +1153,26 @@ class GUIForm(QtWidgets.QMainWindow):
                                                  ignore_index=True)
         self.batch_info.to_pickle(self.matfilename + 'batchinfo.pkl')
 
-    def batchinfodialog(self):
+    def batch_info_dialog(self):
         self.p1.clear()
-        self.bp = BatchProcessor()
-        self.bp.show()
-
+        self.batch_processor = BatchProcessor()
+        self.batch_processor.show()
+        uibp = self.bp.uibp
         try:
-            self.bp.uibp.mindwellbox.setText(str(self.mindwell))
-            self.bp.uibp.minfracbox.setText(str(self.minfrac))
-            self.bp.uibp.minleveltbox.setText(str(self.minlevelt * 10 ** 6))
-            self.bp.uibp.sampratebox.setText(str(self.samplerate))
-            self.bp.uibp.LPfilterbox.setText(str(self.LPfiltercutoff / 1000))
-            self.bp.uibp.cusumstepentry.setText(str(self.cusumstep))
-            self.bp.uibp.cusumthreshentry.setText(str(self.cusumthresh))
-            self.bp.uibp.maxLevelsBox.setText(str(self.maxstates))
-        except:
-            ValueError
+            uibp.mindwellbox.setText(str(self.mindwell))
+            uibp.minfracbox.setText(str(self.minfrac))
+            uibp.minleveltbox.setText(str(self.minlevelt * 10 ** 6))
+            uibp.sampratebox.setText(str(self.samplerate))
+            uibp.LPfilterbox.setText(str(self.LPfiltercutoff / 1000))
+            uibp.cusumstepentry.setText(str(self.cusumstep))
+            uibp.cusumthreshentry.setText(str(self.cusumthresh))
+            uibp.maxLevelsBox.setText(str(self.maxstates))
+        except ValueError:
+            pass
+        uibp.okbutton.clicked.connect(self.batch_process)
 
-        self.bp.uibp.okbutton.clicked.connect(self.batchprocess)
-
-    def batchprocess(self):
+    # TODO: Reorganize
+    def batch_process(self):
         global endpoints, startpoints
         self.analyze_type = 'fine'
 
@@ -1170,14 +1193,13 @@ class GUIForm(QtWidgets.QMainWindow):
 
         try:
             # attempt to open dialog from most recent directory
-            self.filelist = QtGui.QFileDialog.getOpenFileNames(self, 'Select Files', self.wd, ("*.pkl"))[0]
-            self.wd = os.path.dirname(self.filelist[0])
+            self.file_list = QtGui.QFileDialog.getOpenFileNames(self, 'Select Files', self.wd, "*.pkl")[0]
+            self.wd = os.path.dirname(self.file_list[0])
         except TypeError:
             # if no recent directory exists open from working directory
-            self.wd == []
-            self.filelist = QtGui.QFileDialog.getOpenFileNames(self, 'Select Files', os.getcwd(), ("*.pkl"))[0]
-            print(self.filelist)
-        #            self.wd=os.path.dirname(str(self.filelist[0][0]))
+            self.file_list = QtGui.QFileDialog.getOpenFileNames(self, 'Select Files', os.getcwd(), "*.pkl")[0]
+            print(self.file_list)
+            # self.wd=os.path.dirname(str(self.filelist[0][0]))
         except IOError:
             # if user cancels during file selection, exit loop
             return
@@ -1185,7 +1207,7 @@ class GUIForm(QtWidgets.QMainWindow):
         eventbuffer = np.int(self.ui.eventbufferentry.text())
         eventtime = [0]
 
-        for f in self.filelist:
+        for f in self.file_list:
             batchinfo = pd.read_pickle(f)
             try:
                 self.data_file_name = f[:-13] + '.opt'
@@ -1285,12 +1307,12 @@ class GUIForm(QtWidgets.QMainWindow):
         self.cusumthresh = cusumthresh
         self.cusumstep = cusumstep
 
-        ###########Plotting Histograms#####################
+        # Plotting Histograms
         self.sdf = self.sdf[self.sdf.fn != self.matfilename]
-        self.numberofevents = len(self.dt)
+        self.num_events = len(self.dt)
 
-        fn = pd.Series([self.matfilename, ] * self.numberofevents)
-        color = pd.Series([pg.colorTuple(self.cb.color()), ] * self.numberofevents)
+        fn = pd.Series([self.matfilename, ] * self.num_events)
+        color = pd.Series([pg.colorTuple(self.cb.color()), ] * self.num_events)
 
         self.sdf = self.sdf.append(pd.DataFrame({'fn': fn, 'color': color, 'deli': deli,
                                                  'frac': frac, 'dwell': self.dwell,
@@ -1355,9 +1377,9 @@ class GUIForm(QtWidgets.QMainWindow):
 
         print('\007')
 
-    def sizethepore(self):
-        self.ps = PoreSizer()
-        self.ps.show()
+    def size_the_pore(self):
+        self.pore_size = PoreSizer()
+        self.pore_size.show()
 
 
 def start():

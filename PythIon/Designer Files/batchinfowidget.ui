@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>batchinfodialog</class>
- <widget class="QDialog" name="batchinfodialog">
+ <class>batch_info_dialog</class>
+ <widget class="QDialog" name="batch_info_dialog">
   <property name="geometry">
    <rect>
     <x>0</x>
