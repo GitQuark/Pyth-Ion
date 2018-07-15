@@ -1182,7 +1182,7 @@ class Ui_PythIon(object):
         self.label_3.setText(_translate("PythIon", "Threshold (nA)"))
         self.thresholdentry.setText(_translate("PythIon", ".3"))
         self.label_6.setText(_translate("PythIon", "Level Threshold (nA)"))
-        self.levelthresholdentry.setText(_translate("PythIon", "None"))
+        self.levelthresholdentry.setText(_translate("PythIon", "1"))  # Default was originally "None"
         self.previousbutton.setText(_translate("PythIon", "Previous"))
         self.nextbutton.setText(_translate("PythIon", "Next"))
         self.label_4.setText(_translate("PythIon", "Enter Event Number To View"))

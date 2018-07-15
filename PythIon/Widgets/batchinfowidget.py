@@ -118,7 +118,7 @@ class Ui_batchinfodialog(object):
         _translate = QtCore.QCoreApplication.translate
         batchinfodialog.setWindowTitle(_translate("batch_info_dialog", "Dialog"))
         self.label.setText(_translate("batch_info_dialog", "Sampling Rate (kHz):"))
-        self.label_6.setText(_translate("batch_info_dialog", "CUSUM Threshold:"))
+        self.label_6.setText(_translate("batch_info_dialog", "cusum Threshold:"))
         self.label_3.setText(_translate("batch_info_dialog", "Min. Fractional Blockade:"))
         self.label_4.setText(_translate("batch_info_dialog", "Min. Dwell Time (μs):"))
         self.label_2.setText(_translate("batch_info_dialog", "Low-Pass Filter (kHz):"))
@@ -127,7 +127,7 @@ class Ui_batchinfodialog(object):
         self.LPfilterbox.setText(_translate("batch_info_dialog", "150"))
         self.mindwellbox.setText(_translate("batch_info_dialog", "0"))
         self.cusumstepentry.setText(_translate("batch_info_dialog", "20"))
-        self.label_5.setText(_translate("batch_info_dialog", "CUSUM Step:"))
+        self.label_5.setText(_translate("batch_info_dialog", "cusum Step:"))
         self.cusumthreshentry.setText(_translate("batch_info_dialog", "10"))
         self.label_7.setText(_translate("batch_info_dialog", "Min. Level time (μs)"))
         self.minleveltbox.setText(_translate("batch_info_dialog", "5"))
