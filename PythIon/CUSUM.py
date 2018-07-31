@@ -1,48 +1,10 @@
 import math
 from typing import List, Tuple
+from PythIon.Utility import load_log_file
 
 from scipy import signal
 from scipy import io as spio
 import numpy as np
-
-
-# Loads the log file data and outputs a vector of voltages and the sample rate
-def load_log_file(info_file_name, data_file_name, lp_filter_cutoff, output_sample_rate):
-    def data_to_amps(raw_data, adc_bits, adc_vref, closedloop_gain, current_offset):
-        # Computations to turn uint16 data into amps
-        bitmask = (2 ** 16) - (1 + ((2 ** (16 - adc_bits)) - 1))
-        raw_data = -adc_vref + ((2 * adc_vref * (raw_data & bitmask)) / 2 ** 16)
-        raw_data = (raw_data / closedloop_gain + current_offset)
-        data = raw_data[0]  # Retrurns the list to a single level: [[data]] -> [data]
-        return data
-
-    mat = spio.loadmat(info_file_name)
-    # ADC is analog to digital converter
-    # Loading in data about file from matlab data file
-    sample_rate = mat['ADCSAMPLERATE'][0][0]
-    ti_gain = mat['SETUP_TIAgain']
-    pre_adc_gain = mat['SETUP_preADCgain'][0][0]
-    current_offset = mat['SETUP_pAoffset'][0][0]
-    adc_vref = mat['SETUP_ADCVREF'][0][0]
-    adc_bits = mat['SETUP_ADCBITS']
-    closedloop_gain = ti_gain * pre_adc_gain
-    # Info has been loaded
-
-    chimera_file = np.dtype('uint16')  # Was <u2 "Little-endian 2 byte unsigned integer"
-    raw_data = np.fromfile(data_file_name, chimera_file)
-    # Part to handle low sample rate
-    if sample_rate < 4000e3:
-        raw_data = raw_data[::round(sample_rate / output_sample_rate)]
-    data = data_to_amps(raw_data, adc_bits, adc_vref, closedloop_gain, current_offset)
-    # Data has been loaded
-
-    # Fow filtering data (NG: Don't know why or what this does)
-    wn = round(lp_filter_cutoff / (sample_rate / 2), 4)  #
-    # noinspection PyTupleAssignmentBalance
-    b, a = signal.bessel(4, wn, btype='low')
-    data = signal.filtfilt(b, a, data)
-
-    return data, sample_rate
 
 
 class Event(object):
