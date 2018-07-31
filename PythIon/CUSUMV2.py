@@ -1,229 +1,223 @@
+import math
+from typing import List, Tuple
+
+from scipy import signal
+from scipy import io as spio
 import numpy as np
+
+
+# Loads the log file data and outputs a vector of voltages and the sample rate
+def load_log_file(info_file_name, data_file_name, lp_filter_cutoff, output_sample_rate):
+    def data_to_amps(raw_data, adc_bits, adc_vref, closedloop_gain, current_offset):
+        # Computations to turn uint16 data into amps
+        bitmask = (2 ** 16) - (1 + ((2 ** (16 - adc_bits)) - 1))
+        raw_data = -adc_vref + ((2 * adc_vref * (raw_data & bitmask)) / 2 ** 16)
+        raw_data = (raw_data / closedloop_gain + current_offset)
+        data = raw_data[0]  # Retrurns the list to a single level: [[data]] -> [data]
+        return data
+
+    mat = spio.loadmat(info_file_name)
+    # ADC is analog to digital converter
+    # Loading in data about file from matlab data file
+    sample_rate = mat['ADCSAMPLERATE'][0][0]
+    ti_gain = mat['SETUP_TIAgain']
+    pre_adc_gain = mat['SETUP_preADCgain'][0][0]
+    current_offset = mat['SETUP_pAoffset'][0][0]
+    adc_vref = mat['SETUP_ADCVREF'][0][0]
+    adc_bits = mat['SETUP_ADCBITS']
+    closedloop_gain = ti_gain * pre_adc_gain
+    # Info has been loaded
+
+    chimera_file = np.dtype('uint16')  # Was <u2 "Little-endian 2 byte unsigned integer"
+    raw_data = np.fromfile(data_file_name, chimera_file)
+    # Part to handle low sample rate
+    if sample_rate < 4000e3:
+        raw_data = raw_data[::round(sample_rate / output_sample_rate)]
+    data = data_to_amps(raw_data, adc_bits, adc_vref, closedloop_gain, current_offset)
+    # Data has been loaded
+
+    # Fow filtering data (NG: Don't know why or what this does)
+    wn = round(lp_filter_cutoff / (sample_rate / 2), 4)  #
+    # noinspection PyTupleAssignmentBalance
+    b, a = signal.bessel(4, wn, btype='low')
+    data = signal.filtfilt(b, a, data)
+
+    return data, sample_rate
+
+
+class Event(object):
+    subevents: List
+
+    def __init__(self, data, start, end, baseline, output_sample_rate, subevents=[].copy()):
+        # Start and end are the indicies in the data
+        self.baseline = baseline
+        self.output_sample_rate = output_sample_rate
+
+        self.local_baseline = np.mean(data[start:end + 1])  # Could be made more precise, but good enough
+        # True can false are converted to 1 and 0, np.argmax returns index of first ture value
+        true_start = start - np.argmax(data[start::-1] > self.local_baseline) + 1
+        true_end = end - np.argmax(data[end::-1] < self.local_baseline)
+        self.start = true_start
+        self.end = true_end
+
+        self.data = data[self.start:self.end + 1]
+        # TODO: Fix slight error in calculations; To much past the tails is included in fall and rise
+        # Rise_end seems to have consistent issues
+        self.noise = np.std(self.data)
+        self.duration = (self.end - self.start) / output_sample_rate  # In seconds
+        self.delta = baseline - np.min(self.data)  # In Volts
+        fall_offset = np.argmax(data[self.start::-1] > baseline)
+        rise_offset = 0
+        if self.end < len(data):  # Condition can fail if voltage has not returned to normal by the end of the data
+            rise_offset = np.argmax(data[self.end:] > baseline)
+
+        self.fall_start = self.start - fall_offset + 1
+        self.rise_end = self.end + rise_offset - 1
+        self.full_data = data[self.fall_start:self.rise_end + 1]
+
+        self.subevents = subevents
+
+    def __repr__(self):
+        return str((self.start/self.output_sample_rate, self.end/self.output_sample_rate))
 
 
 # Recursive function that will detect events and output a nested data structure
 # arranged as [mean, start, [mean, start, end], [mean, start, end], end]
 # Where the nested pairs are sub events. Those events may themselves contain sub-events
-def detect_events(data, num_starting_samples, event_list=[].copy(), start_idx=0):
-    # num_starting_samples = 20  # Used to get a an initial mean; update once more familiar with data
-    # Determine starting mean
-    mean = data[0]
-    sample_var = 0
-    sub_event_offset = 0
-    if event_list:
-        # Gather information about previous state so we know when phase is over
-        baseline = event_list[0]
+def cusum(data, base_sd, output_sample_rate, baseline=None,
+          deviation_length=1000, stepsize=3, deviation_size=3.5, anchor=0, level=0):
+    """
+
+    :param output_sample_rate:
+    :param baseline:
+    :param deviation_length:
+    :param level:
+    :param data: Voltage data in a list
+    :param base_sd: standard deviation of selected portion of
+    :param stepsize: Will only look at one point ever step size; saves compute time
+    :param deviation_size: Size of deviation to detect in standard deviations
+    :param anchor: Index of last detected deviation
+    :return: Returns a nested list of events. Format TBD
+    """
+    # Note: edges of event go with event ie. \_/ is the event, not \_, _/, or _.
+    # Event duration is marked for _ (low volatage) section of event. fall_start and rise_end mark entire \_/ region
+    # Adapted from https://www.itl.nist.gov/div898/handbook/pmc/section3/pmc323.htm
+    deviation_length = round(deviation_length / stepsize)
+    alpha = 0.0027  # Probability of false alarm
+    beta = 0.01  # Probability of failing to detect shift
+    k = deviation_size * base_sd / 2
+    d = (2 / deviation_size ** 2) * math.log((1 - beta) / alpha)
+    h = d * k * deviation_length  # Threshold that can't be exceeded by by either control limit (both are positive)
+    events = []
+    # end_idx = 0
+
+    # Using a running mean instead of overall mean
+    def new_control_limit(current_limits, deviation, k):
+        current_max = current_limits[1]
+        current_min = current_limits[0]
+        new_max = max(0, current_max + deviation - k)
+        new_min = max(0, current_min - deviation - k)
+        return new_min, new_max
+
+    # (Lower Limit, Upper Limit)
+    limits: List[Tuple[float, float]] = [(0, 0)]  # List of ordered pairs
+    subevent_offset = 0  # Number of points contained in subevents
+    running_mean = data[anchor]
+    if not baseline:
+        baseline = running_mean
+    running_variance = base_sd ** 2
+    running_sd = base_sd
+    n = anchor + 1  # Index containing current location in data
+    cum_sum = 0  # Cummulative sum of all deviations; equivalent to CUSUM col on bottom of NIST page
+    # Implmented from wikipedia and NIST page
+    while n < len(data) - 1:
+        pt = data[n]
+        old_mean = running_mean
+        running_mean = running_mean + (pt - running_mean) / (n + 1 - anchor)
+        running_variance = running_variance + (pt - old_mean) * (pt - running_mean)
+
+        if n >= anchor + 2:
+            # print(n, anchor, subevent_offset, n - anchor - subevent_offset - 1, level)
+            running_sd = math.sqrt(running_variance / (n - anchor - subevent_offset - 1))
+            k = deviation_size * running_sd / 2
+            h = d * k * deviation_length
+
+        deviation = pt - running_mean
+        cum_sum += deviation
+        old_limit = limits[-1]
+        limit = new_control_limit(old_limit, deviation, k)
+        limits.append(limit)
+        # Assumes the data starts at universal baseline
+        # print(level, n, limit)
+        old_idx = 0
+        if limit[0] > h:  # Handles dipping into event
+            # Deviation has been detected
+            # for old_idx, old_point in enumerate(data[n::-1]):
+            #     # Work backwards to find first point in event that went below event baseline
+            #     if old_point > running_mean:
+            #         break
+            if level > 1:  # Don't get carried away
+                break
+            # event_start = n - old_idx + 1
+            event = cusum(data, running_sd, output_sample_rate, baseline=running_mean,
+                          anchor=n, level=level+1, stepsize=stepsize)
+            events.append(event)
+            n = event.rise_end  # No need to add anything since n is incremented below
+            limits[-1] = (0, 0)  # Reset the accumulated errors
+            subevent_offset += event.rise_end - event.fall_start
+        elif limit[1] > h:  # Handles returning to baseline
+            # for old_idx, old_point in enumerate(data[n::-1]):
+            #     # Work backwards to find last point in event that was below baseline
+            #     if old_point < data[anchor]:  # data[anchor] is the start of falling edge of event
+            #         break
+            # end_idx = n - old_idx
+            break
+        n += stepsize
+
+    # if not end_idx:  # If no deviations have occured
+    #     end_idx = len(data) - 1
+    if level == 0:
+        return events
     else:
-        event_list.append(start_idx)
-        baseline = np.mean(data[start_idx: start_idx + num_starting_samples])
-    current_idx = start_idx
-
-    # TODO: Make this memory efficient and make sure it one affects the data inside function; no side-effects
-    for pt, idx in enumerate(data[start_idx:]):
-        # Run through data, looking at every point
-        old_mean = mean
-        mean = mean + ((pt - mean) / idx)  # Rolling mean calculation
-        # Rolling variance kind of; true_sd = sqrt(variance/(n - 1)), or true_sd = sqrt(variance/idx)
-        sample_var = sample_var + (pt - old_mean) * (pt - mean)
-        # Calculate rolling mean and standard deviation
-
-        # If the deviation list large enough, mark it, and then make a recursive call
-        deviation = True
-        if deviation:
-            # Recursive call that will detect more events
-            # TODO: Data passed in recursive call should have the transition data points removed
-            # Have function trim the beginning of data until it is within 1.5 sd of mean
-            sub_event = detect_events(data[start_idx], num_starting_samples, event_list, start_idx)
-            sub_event_offset += sub_event[-1] - sub_event[1]
-            event_list.append(sub_event)
-        else:
-            event_list.append([baseline, start_idx, idx + start_idx])
-            return event_list
-    return event_list
-
-# Consider the cumulative average as np.cumsum(data)/np.array(range(1, len(data))
-# def moving_stats(data, anchor, stepsize):
-#     basesd = np.std(data)
-#     n_states = 0
-#     var_m = data[0]
-#     var_s = 0
-#     mean = data[0]
-#     for k in range(len(data)):
-#         # algorithm to calculate running variance,
-#         # details here: http://www.johndcook.com/blog/standard_deviation/
-#         # From above source, M is moving average, S is moving
-#         var_old_m = var_m
-#         var_m = var_m + (data[k] - var_m) / float(k + 1 - anchor)
-#         var_s = var_s + (data[k] - var_old_m) * (data[k] - var_m)
-#         variance = var_s / float(k + 1 - anchor)
-#         mean = ((k - anchor) * mean + data[k]) / float(k + 1 - anchor)
-#         print(mean, variance)
-#         if variance == 0:
-#             # with low-precision data sets it is possible that two adjacent
-#             # values are equal, in which case there is zero variance for the two-vector
-#             # of sample if this occurs next to a detected jump. This is very, very rare, but it does happen.
-#             variance = basesd * basesd
-#             # in that case, we default to the local baseline variance,
-#             # which is a good an estimate as any.
-#             print('entered')
-#
-#         # instantaneous log-likelihood for current sample assuming local baseline has jumped in positive direction
-#         logp = stepsize * basesd / variance * (data[k] - mean - stepsize * basesd / 2)
-#         # instantaneous log-likelihood for current sample assuming local baseline has jumped in negative direction
-#         logn = -stepsize * basesd / variance * (data[k] - mean + stepsize * basesd / 2)
-#         c_pos[k] = c_pos[k - 1] + logp  # accumulate positive log-likelihoods
-#         c_neg[k] = c_neg[k - 1] + logn  # accumulate negative log-likelihoods
-#         g_pos[k] = max(g_pos[k - 1] + logp, 0)  # accumulate or reset positive decision function
-#         g_neg[k] = max(g_neg[k - 1] + logn, 0)  # accumulate or reset negative decision function
-#
-#         if g_pos[k] > threshhold or g_neg[k] > threshhold:
-#             if g_pos[k] > threshhold:  # significant positive jump detected
-#                 jump = anchor + np.argmin(c_pos[anchor:k + 1])  # find the location of the start of the jump
-#                 if jump - edges[n_states] > minlength:
-#                     edges = np.append(edges, jump)
-#                     n_states += 1
-#             if g_neg[k] > threshhold:  # significant negative jump detected
-#                 jump = anchor + np.argmin(c_neg[anchor:k + 1])
-#                 if jump - edges[n_states] > minlength:
-#                     edges = np.append(edges, jump)
-#                     n_states += 1
-#             anchor = k
-#             c_pos[0:len(c_pos)] = 0  # reset all decision arrays
-#             c_neg[0:len(c_neg)] = 0
-#             g_pos[0:len(g_pos)] = 0
-#             g_neg[0:len(g_neg)] = 0
-#             mean = data[anchor]
-#             var_m = data[anchor]
-#             var_s = 0
-#         if max_states > 0:
-#             if n_states > max_states:
-#                 print('too sensitive')
-#                 print(threshhold, stepsize)
-#                 n_states = 0
-#                 k = 0
-#                 stepsize = stepsize * 1.1
-#                 threshhold = threshhold * 1.1
-#                 logp = 0  # instantaneous log-likelihood for positive jumps
-#                 logn = 0  # instantaneous log-likelihood for negative jumps
-#                 c_pos = np.zeros(len(data), dtype='float64')  # cumulative log-likelihood function for positive jumps
-#                 c_neg = np.zeros(len(data), dtype='float64')  # cumulative log-likelihood function for negative jumps
-#                 g_pos = np.zeros(len(data), dtype='float64')  # decision function for positive jumps
-#                 g_neg = np.zeros(len(data), dtype='float64')  # decision function for negative jumps
-#                 edges = np.array([0], dtype='int64')  # init array w/ the pos of the first subevent - start of event
-#                 anchor = 0  # the last detected change
-#                 length = len(data)
-#                 mean = data[0]
-#                 variance = basesd ** 2
-#                 k = 0
-#                 n_states = 0
-#                 var_m = data[0]
-#                 var_s = 0
-#                 mean = data[0]
+        return Event(data, anchor, n, baseline, output_sample_rate, events)
 
 
-def detect_cusum(data, base_sd, dt, threshhold=10, stepsize=3,
-                 minlength=1000, max_states=-1):
+# Takes the data and returns list of event objects.
+def analyze(data, threshold, output_sample_rate):
+    # Find all the points below thrshold
+    below = np.where(data < threshold)[0]
+    start_and_end = np.diff(below)
+    transitions = np.where(start_and_end > 1)[0]
+    # Assuming that record starts and end at baseline
+    # below[transitions] give starting points, below[transitions + 1] gives event end points
+    start_idxs = np.concatenate([[0], transitions + 1])
+    end_idxs = np.concatenate([transitions, [len(below) - 1]])
+    events_intervals = list(zip(below[start_idxs], below[end_idxs]))
+    baseline = np.mean(data)
+    events = []
+    for interval in events_intervals:
+        events.append(Event(data, interval[0], interval[1], baseline, output_sample_rate))
+    return events
 
-    # dt = 1
-    print('base_sd = ' + str(base_sd))
-    # log_p = 0  # instantaneous log-likelihood for positive jumps
-    # log_n = 0  # instantaneous log-likelihood for negative jumps
-    c_pos = np.zeros(len(data), dtype='float64')  # cumulative log-likelihood function for positive jumps
-    c_neg = np.zeros(len(data), dtype='float64')  # cumulative log-likelihood function for negative jumps
-    g_pos = np.zeros(len(data), dtype='float64')  # decision function for positive jumps
-    g_neg = np.zeros(len(data), dtype='float64')  # decision function for negative jumps
-    edges = np.array([0], dtype='int64')  # init array with the position of the first subevent - the start of the event
-    anchor = 0  # the last detected change
-    length = len(data)
-    # mean = data[0]
-    # variance = base_sd ** 2
-    k = 0
-    n_states = 0
-    var_m = data[0]
-    var_s = 0
-    mean = data[0]
 
-    # sThreshhold = threshhold
-    # sStepSize = stepsize
+if __name__ == "__main__":
+    # Mat file is matlab data. Should be in a more portable format (JSON?); Was changed to info_file_name
+    info_file_name = r"C:\Users\Noah PC\PycharmProjects\Pyth-Ion\PythIon\Sample Data\3500bp-200mV.mat"
+    data_file_name = r"C:\Users\Noah PC\PycharmProjects\Pyth-Ion\PythIon\Sample Data\3500bp-200mV.log"
+    lp_filter_cutoff = 100000
+    out_sample_rate = 4166670
+    threshold = 0.3e-9
+    data, sample_rate = load_log_file(info_file_name, data_file_name, lp_filter_cutoff, out_sample_rate)
+    data = data[20:-20]  # Removing weird spikes from data
+    small_data = data[:int(1e6)]  # First million points contain one event
+    base_sd = np.std(data[:200000])
+    baseline = np.mean(data)
+    # events = analyze(data, threshold, out_sample_rate)
+    # num_events = len(events)
+    cusum_result = cusum(data[33500000:33790000], base_sd, out_sample_rate)
+    # frac = [event.local_baseline / baseline for event in events]
+    # Time between the starts of events?
+    # dt = np.concatenate([[0], np.diff([event.start for event in events]) / out_sample_rate])
 
-    while k < length - 1:
-        if k % 1000 == 0:
-            pass
-        k += 1
-        # algorithm to calculate running variance,
-        # details here: http://www.johndcook.com/blog/standard_deviation/
-        # From above source, M is moving average, S is cumulative variance
-        var_old_m = var_m
-        var_m = var_m + (data[k] - var_m) / float(k + 1 - anchor)
-        var_s = var_s + (data[k] - var_old_m) * (data[k] - var_m)
-        variance = var_s / float(k + 1 - anchor)
-        mean = ((k - anchor) * mean + data[k]) / float(k + 1 - anchor)
-        # with low-precision data sets it is possible that two adjacent values are equal, in which case there is zero
-        # variance for the two-vector of sample if this occurs next to a detected jump. This is very, very rare, but it
-        # does happen. in that case, we default to the local baseline variance, which is a good an estimate as any.
-        if variance == 0:
-            variance = base_sd * base_sd
-            print('Zero Variance Point Detected')
 
-        # instantaneous log-likelihood for current sample assuming local baseline has jumped in the positive direction
-        log_p = stepsize * base_sd * ((data[k] - mean) - (stepsize * base_sd / 2)) / variance
-        # instantaneous log-likelihood for current sample assuming local baseline has jumped in the negative direction
-        log_n = stepsize * base_sd * ((mean - data[k]) - (stepsize * base_sd / 2)) / variance
-        c_pos[k] = c_pos[k - 1] + log_p  # accumulate positive log-likelihoods
-        c_neg[k] = c_neg[k - 1] + log_n  # accumulate negative log-likelihoods
-        g_pos[k] = max(g_pos[k - 1] + log_p, 0)  # accumulate or reset positive decision function
-        g_neg[k] = max(g_neg[k - 1] + log_n, 0)  # accumulate or reset negative decision function
-        if g_pos[k] > threshhold or g_neg[k] > threshhold:
-            if g_pos[k] > threshhold:  # significant positive jump detected
-                jump = anchor + np.argmin(c_pos[anchor:k + 1])  # find the location of the start of the jump
-            else:  # significant negative jump detected
-                jump = anchor + np.argmin(c_neg[anchor:k + 1])
-            if jump - edges[n_states] > minlength:
-                edges = np.append(edges, jump)
-                n_states += 1
-            anchor = k
-            c_pos[0:len(c_pos)] = 0  # reset all decision arrays
-            c_neg[0:len(c_neg)] = 0
-            g_pos[0:len(g_pos)] = 0
-            g_neg[0:len(g_neg)] = 0
-            mean = data[anchor]
-            var_m = data[anchor]
-            var_s = 0
-        if max_states > 0:
-            if n_states > max_states:
-                print('too sensitive')
-                print(threshhold, stepsize)
-                n_states = 0
-                k = 0
-                stepsize = stepsize * 1.1
-                threshhold = threshhold * 1.1
-                log_p = 0  # instantaneous log-likelihood for positive jumps
-                log_n = 0  # instantaneous log-likelihood for negative jumps
-                c_pos = np.zeros(len(data), dtype='float64')  # cumulative log-likelihood function for positive jumps
-                c_neg = np.zeros(len(data), dtype='float64')  # cumulative log-likelihood function for negative jumps
-                g_pos = np.zeros(len(data), dtype='float64')  # decision function for positive jumps
-                g_neg = np.zeros(len(data), dtype='float64')  # decision function for negative jumps
-                edges = np.array([0], dtype='int64')  # init array w/ the pos of the first subevent - start of event
-                anchor = 0  # the last detected change
-                length = len(data)
-                mean = data[0]
-                variance = base_sd ** 2
-                k = 0
-                n_states = 0
-                var_m = data[0]
-                var_s = 0
-                mean = data[0]
 
-    edges = np.append(edges, len(data))  # mark the end of the event as an edge
-    n_states += 1
-
-    cusum = dict()
-    # detect current levels during detected sub-events
-    cusum['CurrentLevels'] = [np.average(data[int(edges[i] + minlength):int(edges[i + 1])]) for i in range(n_states)]
-    cusum['EventDelay'] = edges * dt  # locations of sub-events in the data
-    cusum['Threshold'] = threshhold  # record the threshold used
-    cusum['stepsize'] = stepsize
-    cusum['jumps'] = np.diff(cusum['CurrentLevels'])
-    # self.__recordevent(cusum)
-
-    return cusum

@@ -4,8 +4,9 @@ import pyqtgraph as pg
 from scipy import io as spio
 from scipy import ndimage
 from scipy import signal
+from typing import List
 
-from PythIon.CUSUMV2 import detect_cusum
+from PythIon.CUSUMV2 import cusum
 from PythIon.PoreSizer import *
 from PythIon.abfheader import *
 from PythIon.batchinfo import *
@@ -257,143 +258,257 @@ def plot_on_load(instance, data, baseline, threshold, file_type, t, p1, p3):
     p3.setXRange(np.min(data), np.max(data))
 
 
+def calc_dt(events):
+    return np.concatenate([[0], np.diff([event.start for event in events]) / events[0].output_sample_rate])
+
+
+def calc_frac(events):
+    return [event.local_baseline / events[0].baseline for event in events]
+
+
+# Function to hide ui setup boilerplate
+def setup_ui(form):
+    # TODO: Maybe move the top two lines out of function
+    ui = Ui_PythIon()
+    ui.setup_ui(form)
+
+    # Linking buttons to main functions
+    ui.loadbutton.clicked.connect(form.get_file)
+    ui.analyzebutton.clicked.connect(form.analyze)
+    ui.cutbutton.clicked.connect(form.cut)
+    ui.baselinebutton.clicked.connect(form.set_baseline)
+    ui.clearscatterbutton.clicked.connect(form.clear_scatter)
+    ui.deleteeventbutton.clicked.connect(form.delete_event)
+    ui.invertbutton.clicked.connect(form.invert_data)
+    ui.concatenatebutton.clicked.connect(form.concatenate_text)
+    ui.nextfilebutton.clicked.connect(form.next_file)
+    ui.previousfilebutton.clicked.connect(form.previous_file)
+    ui.showcatbutton.clicked.connect(form.show_cat_trace)
+    ui.savecatbutton.clicked.connect(form.save_cat_trace)
+    ui.gobutton.clicked.connect(form.inspect_event)
+    ui.previousbutton.clicked.connect(form.previous_event)
+    ui.nextbutton.clicked.connect(form.next_event)
+    ui.savefitsbutton.clicked.connect(form.save_event_fits)
+    ui.fitbutton.clicked.connect(form.cusum)
+    ui.Poresizeraction.triggered.connect(form.size_pore)
+    ui.actionBatch_Process.triggered.connect(form.batch_info_dialog)
+
+    # Setting up plotting elements and their respective options
+    # TODO: Make list of plots (Setting all to white I assume)
+    ui.signalplot.setBackground('w')
+    ui.scatterplot.setBackground('w')
+    ui.eventplot.setBackground('w')
+    ui.frachistplot.setBackground('w')
+    ui.delihistplot.setBackground('w')
+    ui.dwellhistplot.setBackground('w')
+    ui.dthistplot.setBackground('w')
+    # ui.PSDplot.setBackground('w')
+    return ui
+
+
+def setup_p1(ui):
+    p1 = ui.signalplot.addPlot()
+    p1.setLabel('bottom', text='Time', units='s')
+    p1.setLabel('left', text='Current', units='A')
+    # p1.enableAutoRange(axis='x')
+    p1.setClipToView(clip=True)  # THIS IS THE MOST IMPORTANT LINE!!!!
+    p1.setDownsampling(ds=True, auto=True, mode='peak')
+    return p1
+
+
+def setup_p2(clicked):
+    p2 = pg.ScatterPlotItem()
+    p2.sigClicked.connect(clicked)
+    return p2
+
+
+def setup_w1(instance, p2):
+    w1 = instance.ui.scatterplot.addPlot()
+    w1.addItem(p2)
+    w1.setLabel('bottom', text='Time', units=u'μs')
+    w1.setLabel('left', text='Fractional Current Blockage')
+    w1.setLogMode(x=True, y=False)
+    w1.showGrid(x=True, y=True)
+    return w1
+
+
+def setup_cb(ui):
+    cb = pg.ColorButton(ui.scatterplot, color=(0, 0, 255, 50))
+    cb.setFixedHeight(30)
+    cb.setFixedWidth(30)
+    cb.move(0, 210)
+    cb.show()
+    return cb
+
+
+def setup_plots(instance):  # TODO: revisit name
+    w2 = instance.ui.frachistplot.addPlot()
+    w2.setLabel('bottom', text='Fractional Current Blockage')
+    w2.setLabel('left', text='Counts')
+
+    w3 = instance.ui.delihistplot.addPlot()
+    w3.setLabel('bottom', text='ΔI', units='A')
+    w3.setLabel('left', text='Counts')
+
+    w4 = instance.ui.dwellhistplot.addPlot()
+    w4.setLabel('bottom', text='Log Dwell Time', units='μs')
+    w4.setLabel('left', text='Counts')
+
+    w5 = instance.ui.dthistplot.addPlot()
+    w5.setLabel('bottom', text='dt', units='s')
+    w5.setLabel('left', text='Counts')
+    return w2, w3, w4, w5
+
+
+def load_logo():
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    logo = ndimage.imread(dir_path + os.sep.join(["", "Assets", "pythionlogo.png"]))
+    logo = np.rot90(logo, -1)
+    logo = pg.ImageItem(logo)
+    return logo
+
+
+def setup_p3(ui, logo):
+    p3 = ui.eventplot.addPlot()
+    p3.hideAxis('bottom')
+    p3.hideAxis('left')
+    p3.addItem(logo)
+    p3.setAspectLocked(True)
+    return p3
+
+
+class Event(object):
+    def __init__(self, data, start, end, baseline, output_sample_rate):
+        # Start and end are the indicies in the data
+        self.start = start
+        self.end = end
+        self.data = data[start:end + 1]
+        self.baseline = baseline
+        self.local_baseline = np.mean(self.data)
+        self.output_sample_rate = output_sample_rate
+        self.delta = baseline - np.min(self.data)  # In Volts
+        self.duration = end - start / output_sample_rate  # In seconds
+        self.noise = np.std(self.data)
+
+
+# Takes the data and returns list of event objects.
+def analyze(data, threshold, output_sample_rate):
+    # Find all the points below thrshold
+    below = np.where(data < threshold)[0]
+    start_and_end = np.diff(below)
+    transitions = np.where(start_and_end > 1)[0]
+    # Assuming that record starts and end at baseline
+    # below[transitions] give starting points, below[transitions + 1] gives event end points
+    start_idxs = np.concatenate([[0], transitions + 1])
+    end_idxs = np.concatenate([transitions, [len(below) - 1]])
+    events_intervals = list(zip(below[start_idxs], below[end_idxs]))
+    baseline = np.mean(data)
+    events = []
+    for interval in events_intervals:
+        events.append(Event(data, interval[0], interval[1], baseline, output_sample_rate))
+    return events
+
+
+def save_batch_info(events, batch_info, info_file_name):
+    del_i = [event.delta for event in events]
+    frac = calc_frac(events)
+    dwell = [event.duration for event in events]
+    dt = calc_dt(events)
+    noise = [event.noise for event in events]
+    start_points = [event.start for event in events]
+    end_points = [event.end for event in events]
+    cut_start = batch_info["cutstart"]
+    cut_end = batch_info["cutend"]
+    batch_info = pd.DataFrame({'cutstart': cut_start, 'cutend': cut_end})
+    batch_info = batch_info.dropna()
+    batch_info = batch_info.append(pd.DataFrame({'deli': del_i, 'frac': frac, 'dwell': dwell, 'dt': dt,
+                                                 'noise': noise, 'startpoints': start_points,
+                                                 'endpoints': end_points}),
+                                   ignore_index=True)
+    batch_info.to_pickle(info_file_name + 'batchinfo.pkl')
+    return batch_info
+
+
+def save_cat_data(data, events, ui, info_file_name):
+    event_buffer = np.int(ui.eventbufferentry.text())
+    baseline = events[0].baseline
+    cat_data = np.array([])
+    cat_fits = np.array([])
+    # NOTE: Below was changed from idx in range(num_events - 1) due to assumed off-by-one error
+    # Section with similar code was changed as well
+    for idx, event in enumerate(events[:-1]):
+        adj_start = event.start - event_buffer
+        adj_end = event.end + event_buffer
+        if adj_end > events[idx + 1].start:
+            print('overlapping event')
+            continue
+        data_pts = generate_data_pts(data, adj_start, adj_end)
+        event_pts = generate_event_pts(adj_start, adj_end, event_buffer, baseline, event.delta)
+        cat_data = np.concatenate((cat_data, data_pts), 0)
+        cat_fits = np.concatenate((cat_fits, event_pts), 0)
+
+    # cat_data = cat_data[::10]
+    cat_data.astype('d').tofile(info_file_name + '_cattrace.bin')
+
+
+def update_histograms(sdf, ui, events, w2, w3, w4, w5):
+    colors = sdf.color.unique()
+    for i, x in enumerate(colors):
+        frac = calc_frac(events)
+        dt = calc_dt(events)
+        num_events = len(events)
+        # Plotting starts after this
+        durations = [event.duration for event in events]
+        deltas = [event.delta for event in events]
+        start_points = [event.start for event in events]
+        end_points = [event.end for event in events]
+        noise = [event.noise for event in events]
+        frac_bins = np.linspace(0, 1, int(ui.fracbins.text()))
+        delta_bins = np.linspace(float(ui.delirange0.text()) * 10 ** -9, float(ui.delirange1.text()) * 10 ** -9,
+                                 int(ui.delibins.text()))
+        duration_bins = np.linspace(float(ui.dwellrange0.text()), float(ui.dwellrange1.text()),
+                                    int(ui.dwellbins.text()))
+        dt_bins = np.linspace(float(ui.dtrange0.text()), float(ui.dtrange1.text()), int(ui.dtbins.text()))
+
+        frac_y, frac_x = np.histogram(frac, bins=frac_bins)
+        deli_y, deli_x = np.histogram(deltas, bins=delta_bins)
+        dwell_y, dwell_x = np.histogram(np.log10(durations), bins=duration_bins)
+        dt_y, dt_x = np.histogram(dt, bins=dt_bins)
+
+        hist = pg.BarGraphItem(height=frac_y, x0=frac_x[:-1], x1=frac_x[1:], brush=x)
+        w2.addItem(hist)
+        hist = pg.BarGraphItem(height=deli_y, x0=deli_x[:-1], x1=deli_x[1:], brush=x)
+        w3.addItem(hist)
+        w3.setRange(xRange=[float(ui.delirange0.text()) * 10 ** -9, float(ui.delirange1.text()) * 10 ** -9])
+        hist = pg.BarGraphItem(height=dwell_y, x0=dwell_x[:-1], x1=dwell_x[1:], brush=x)
+        w4.addItem(hist)
+        hist = pg.BarGraphItem(height=dt_y, x0=dt_x[:-1], x1=dt_x[1:], brush=x)
+        w5.addItem(hist)
+
+
 BILLION = 10 ** 9  # Hopefully makes reading clearer
 
 
 class GUIForm(QtWidgets.QMainWindow):
 
+    events: List[Event]
+
     def __init__(self, width, height, master=None):
         # Setup GUI and draw elements from UI file
         QtWidgets.QMainWindow.__init__(self, master)
-
-        # Function to hide ui setup boilerplate
-        def setup_ui(form):
-            # TODO: Maybe move the top two lines out of function
-            ui = Ui_PythIon()
-            ui.setup_ui(form)
-
-            # Linking buttons to main functions
-            ui.loadbutton.clicked.connect(form.get_file)
-            ui.analyzebutton.clicked.connect(form.analyze)
-            ui.cutbutton.clicked.connect(form.cut)
-            ui.baselinebutton.clicked.connect(form.base_line_calc)
-            ui.clearscatterbutton.clicked.connect(form.clear_scatter)
-            ui.deleteeventbutton.clicked.connect(form.delete_event)
-            ui.invertbutton.clicked.connect(form.invert_data)
-            ui.concatenatebutton.clicked.connect(form.concatenate_text)
-            ui.nextfilebutton.clicked.connect(form.next_file)
-            ui.previousfilebutton.clicked.connect(form.previous_file)
-            ui.showcatbutton.clicked.connect(form.show_cat_trace)
-            ui.savecatbutton.clicked.connect(form.save_cat_trace)
-            ui.gobutton.clicked.connect(form.inspect_event)
-            ui.previousbutton.clicked.connect(form.previous_event)
-            ui.nextbutton.clicked.connect(form.next_event)
-            ui.savefitsbutton.clicked.connect(form.save_event_fits)
-            ui.fitbutton.clicked.connect(form.cusum)
-            ui.Poresizeraction.triggered.connect(form.size_pore)
-            ui.actionBatch_Process.triggered.connect(form.batch_info_dialog)
-
-            # Setting up plotting elements and their respective options
-            # TODO: Make list of plots (Setting all to white I assume)
-            ui.signalplot.setBackground('w')
-            ui.scatterplot.setBackground('w')
-            ui.eventplot.setBackground('w')
-            ui.frachistplot.setBackground('w')
-            ui.delihistplot.setBackground('w')
-            ui.dwellhistplot.setBackground('w')
-            ui.dthistplot.setBackground('w')
-            # ui.PSDplot.setBackground('w')
-            return ui
+        pg.setConfigOptions(antialias=True)
 
         self.ui = setup_ui(self)
-
-        def setup_p1(ui):
-            p1 = ui.signalplot.addPlot()
-            p1.setLabel('bottom', text='Time', units='s')
-            p1.setLabel('left', text='Current', units='A')
-            # p1.enableAutoRange(axis='x')
-            p1.setClipToView(clip=True)  # THIS IS THE MOST IMPORTANT LINE!!!!
-            p1.setDownsampling(ds=True, auto=True, mode='peak')
-            return p1
-
         self.p1 = setup_p1(self.ui)
-
-        def setup_p2(clicked):
-            p2 = pg.ScatterPlotItem()
-            p2.sigClicked.connect(clicked)
-            return p2
-
         self.p2 = setup_p2(self.clicked)
-
-        def setup_w1(p2):
-            w1 = self.ui.scatterplot.addPlot()
-            w1.addItem(p2)
-            w1.setLabel('bottom', text='Time', units=u'μs')
-            w1.setLabel('left', text='Fractional Current Blockage')
-            w1.setLogMode(x=True, y=False)
-            w1.showGrid(x=True, y=True)
-            return w1
-
-        self.w1 = setup_w1(self.p2)
-
-        def setup_cb(ui):
-            cb = pg.ColorButton(ui.scatterplot, color=(0, 0, 255, 50))
-            cb.setFixedHeight(30)
-            cb.setFixedWidth(30)
-            cb.move(0, 210)
-            cb.show()
-            return cb
-
+        self.w1 = setup_w1(self, self.p2)
         self.cb = setup_cb(self.ui)
-
-        def setup_plots():  # TODO: revisit name
-            w2 = self.ui.frachistplot.addPlot()
-            w2.setLabel('bottom', text='Fractional Current Blockage')
-            w2.setLabel('left', text='Counts')
-
-            w3 = self.ui.delihistplot.addPlot()
-            w3.setLabel('bottom', text='ΔI', units='A')
-            w3.setLabel('left', text='Counts')
-
-            w4 = self.ui.dwellhistplot.addPlot()
-            w4.setLabel('bottom', text='Log Dwell Time', units='μs')
-            w4.setLabel('left', text='Counts')
-
-            w5 = self.ui.dthistplot.addPlot()
-            w5.setLabel('bottom', text='dt', units='s')
-            w5.setLabel('left', text='Counts')
-            return w2, w3, w4, w5
-
-        self.w2, self.w3, self.w4, self.w5 = setup_plots()
-
-        def load_logo():
-            dir_path = os.path.dirname(os.path.realpath(__file__))
-            logo = ndimage.imread(dir_path + os.sep.join(["", "Assets", "pythionlogo.png"]))
-            logo = np.rot90(logo, -1)
-            logo = pg.ImageItem(logo)
-            return logo
-
+        self.w2, self.w3, self.w4, self.w5 = setup_plots(self)
         self.logo = load_logo()
-
-        def setup_p3(ui, logo):
-            p3 = ui.eventplot.addPlot()
-            p3.hideAxis('bottom')
-            p3.hideAxis('left')
-            p3.addItem(logo)
-            p3.setAspectLocked(True)
-            return p3
-
         self.p3 = setup_p3(self.ui, self.logo)
 
-        # TODO: See if this can be removed
-        #        self.w6 = self.ui.PSDplot.addPlot()
-        #        self.w6.setLogMode(x = True, y = True)
-        #        self.w6.setLabel('bottom', text='Frequency (Hz)')
-        #        self.w6.setLabel('left', text='PSD (pA^2/Hz)')
-
         # Initializing various variables used for analysis
-        self.wd = os.getcwd()
-        self.data_file_name = []
+        self.data_file_name = None
         self.base_region = pg.LinearRegionItem()
         self.base_region.hide()  # Needed since LinearRegionItems is loaded as visible
         self.cut_region = pg.LinearRegionItem(brush=(198, 55, 55, 75))
@@ -402,12 +517,7 @@ class GUIForm(QtWidgets.QMainWindow):
         self.last_clicked = []
         self.has_baseline_been_set = False
         self.last_event = 0
-        self.del_i = []
-        self.frac = []
-        self.dwell = []
-        self.dt = []
         self.cat_data = []
-        self.colors = []
         self.sdf = pd.DataFrame(columns=['fn', 'color', 'deli', 'frac',
                                          'dwell', 'dt', 'startpoints', 'endpoints'])
         self.analyze_type = 'coarse'
@@ -422,18 +532,13 @@ class GUIForm(QtWidgets.QMainWindow):
         self.mat_file_name = None
         self.t = None
         self.cat_fits = None
-        self.min_dwell = None
-        self.min_frac = None
         self.min_level_t = None
         self.LPfiltercutoff = None
         self.max_states = 1
-        self.noise = None
-        self.start_points = None
-        self.end_points = None
-        self.t_cat = None
         self.width = width
         self.height = height
         self.file_type = None
+        self.events = None
 
         self.batch_info = pd.DataFrame(columns=list(['cutstart', 'cutend']))
         self.total_plot_points = len(self.p2.data)
@@ -450,9 +555,6 @@ class GUIForm(QtWidgets.QMainWindow):
         var = self.var
         sample_rate = self.sample_rate
         has_baseline_been_set = self.has_baseline_been_set
-
-        # TODO: This may break it
-        self.cat_data = []
 
         p3.clear()
         p3.setLabel('bottom', text='Current', units='A', unitprefix='n')
@@ -533,7 +635,7 @@ class GUIForm(QtWidgets.QMainWindow):
 
     # Static
     def get_file(self):
-        wd = self.wd
+        wd = os.getcwd()
         try:
             # attempt to open dialog from most recent directory
             data_file_name = QtWidgets.QFileDialog.getOpenFileName(self, 'Open file', wd,
@@ -545,7 +647,6 @@ class GUIForm(QtWidgets.QMainWindow):
             data_file_name = data_file_name[0]
             self.data_file_name = data_file_name
             wd = os.path.dirname(data_file_name)
-            self.wd = wd
             self.load()
 
         except IOError as e:
@@ -557,19 +658,19 @@ class GUIForm(QtWidgets.QMainWindow):
         data = self.data
         if data is None:
             return
-        baseline = self.baseline
-        var = self.var
         w1 = self.w1
         w2 = self.w2
         w3 = self.w3
         w4 = self.w4
         w5 = self.w5
         output_sample_rate = self.output_sample_rate
-        sdf = self.sdf
         t = self.t
-        p1 = self.p1
-        p2 = self.p2
+
+        sdf = self.sdf
+        time_plot = self.p1
+        durations_plot = self.p2
         info_file_name = self.mat_file_name
+
         cb = self.cb
 
         analyze_type = 'coarse'
@@ -579,228 +680,101 @@ class GUIForm(QtWidgets.QMainWindow):
         w5.clear()
         ui = self.ui
         threshold = np.float64(ui.thresholdentry.text()) * 10 ** -9
-
         # find all points below threshold
 
         # Setup happens above
-        below = np.where(data < threshold)[0]
-
-        # locate the points where the current crosses the threshold
-
-        start_and_end = np.diff(below)
-        start_points = np.insert(start_and_end, 0, 2)
-        end_points = np.insert(start_and_end, -1, 2)
-        start_points = np.where(start_points > 1)[0]
-        end_points = np.where(end_points > 1)[0]
-        start_points = below[start_points]
-        end_points = below[end_points]
-
-        # Eliminate events that start before file or end after file
-
-        if start_points[0] == 0:
-            start_points = np.delete(start_points, 0)
-            end_points = np.delete(end_points, 0)
-        if end_points[-1] == len(data) - 1:
-            start_points = np.delete(start_points, -1)
-            end_points = np.delete(end_points, -1)
-
-        # Track points back up to baseline to find true start and end
-
-        num_events = len(start_points)
-        high_thresh = baseline - var
-
-        def find_a_name(data, start_points, end_points, high_thresh, num_events):
-            pass
-
-        for event_idx in range(num_events):
-            # Corrects the start point
-            event_start = start_points[event_idx]  # mark initial guess for starting point
-            while data[event_start] < high_thresh and event_start > 0:
-                event_start = event_start - 1  # track back until we return to baseline
-            start_points[event_idx] = event_start  # mark true start point
-
-            # Corrects end point
-            event_end = end_points[event_idx]  # repeat process for end point
-            if event_end == len(data) - 1:  # sure that the current returns to baseline
-                end_points[event_idx] = 0  # before file ends. If not, mark points for
-                start_points[event_idx] = 0  # deletion and break from loop
-                # event_end = 0 # unused
-                break
-            while data[event_end] < high_thresh:
-                event_end = event_end + 1
-                if event_end == len(data) - 1:  # sure that the current returns to baseline
-                    end_points[event_idx] = 0  # before file ends. If not, mark points for
-                    start_points[event_idx] = 0  # deletion and break from loop
-                    # event_end = 0  # unused
-                    break
-                else:
-                    try:
-                        if event_end > start_points[event_idx + 1]:  # if we hit the next startpoint before we
-                            start_points[event_idx + 1] = 0  # return to baseline, mark for deletion
-                            end_points[event_idx] = 0  # and break out of loop
-                            event_end = 0
-                            break
-                    except IndexError as e:
-                        pass
-                        # raise IndexError
-                end_points[event_idx] = event_end
-
-        start_points = start_points[start_points != 0]  # delete those events marked for
-        end_points = end_points[end_points != 0]  # deletion earlier
-        num_events = len(start_points)
-
-        if len(start_points) > len(end_points):
-            start_points = np.delete(start_points, -1)
-            num_events = len(start_points)
-
-        # Now we want to move the endpoints to be the last minimum for each
-        # event so we find all minimas for each event, and set endpoint to last
-
-        del_i = np.zeros(num_events)
-        dwell = np.zeros(num_events)
-
-        for i in range(num_events):
-            event_start = start_points[i]
-            event_end = end_points[i]
-            mins = np.array(signal.argrelmin(data[event_start:event_end])[0] + event_start)
-            # Ensures the minimum points are sufficiently far away from baseline (4 stdevs?)
-            mins = mins[data[mins] < baseline - 4 * var]
-            if len(mins) == 1:
-                pass
-                del_i[i] = baseline - min(data[event_start:event_end])  # Minimum of all data
-                dwell[i] = (event_end - event_start) * 1e6 / output_sample_rate
-                # event_end = mins[0] # unused
-            elif len(mins) > 1:
-                del_i[i] = baseline - np.mean(data[mins[0]:mins[-1]])  # Minimum to minimum for del
-                event_end = mins[-1]
-                dwell[i] = (event_end - event_start) * 1e6 / output_sample_rate
-
-        start_points = start_points[del_i != 0]
-        end_points = end_points[del_i != 0]
-        del_i = del_i[del_i != 0]
-        dwell = dwell[dwell != 0]
-        frac = del_i / baseline
-        dt = np.array(0)
-        dt = np.append(dt, np.diff(start_points) / output_sample_rate)
-        num_events = len(dt)
-        noise = (10 ** 10) * np.array([np.std(data[x:end_points[i]]) for i, x in enumerate(start_points)])
-
+        events = analyze(data, threshold, output_sample_rate)
+        frac = calc_frac(events)
+        dt = calc_dt(events)
+        num_events = len(events)
         # Plotting starts after this
-        p1.clear()
+        durations = [event.duration for event in events]
+        deltas = [event.delta for event in events]
+        start_points = [event.start for event in events]
+        end_points = [event.end for event in events]
+        noise = [event.noise for event in events]
 
         # skips plotting first and last two points, there was a weird spike issue
-        #        self.p1.plot(self.t[::10][2:][:-2],data[::10][2:][:-2],pen='b')
-        p1.setDownsampling(ds=False)
-        p1.plot(t[2:][:-2], data[2:][:-2], pen='b')
-        # FIXME: Line beow is currently broken when autosize viewport of graph is set.
-        if len(t[start_points]) >= 2 or len(data[start_points]) >= 2:
-            p1.plot(t[start_points], data[start_points], pen=None, symbol='o', symbolBrush='g', symbolSize=10)
-            p1.plot(t[end_points], data[end_points], pen=None, symbol='o', symbolBrush='r', symbolSize=10)
+        #        self.time_plot.plot(self.t[::10][2:][:-2],data[::10][2:][:-2],pen='b')
+        time_plot.clear()
+        time_plot.plot(t[2:][:-2], data[2:][:-2], pen='b')
+        if num_events >= 2:
+            # TODO: Figure out why a single point can't be plotted
+            # Plotting start and end points
+            time_plot.plot(t[start_points], data[start_points], pen=None, symbol='o', symbolBrush='g', symbolSize=10)
+            time_plot.plot(t[end_points], data[end_points], pen=None, symbol='o', symbolBrush='r', symbolSize=10)
+        time_plot.autoRange()
 
+        # Updating satistics text
+        mean_delta = round(np.mean(deltas) * BILLION, 2)
+        median_duration = round(float(np.median(durations)), 2)
+        event_rate = round(num_events / t[-1], 1)
         ui.eventcounterlabel.setText('Events:' + str(num_events))
-        # noinspection PyTypeChecker
-        ui.meandelilabel.setText('Deli:' + str(round(np.mean(del_i * BILLION), 2)) + ' nA')
-        # noinspection PyTypeChecker
-        ui.meandwelllabel.setText('Dwell:' + str(round(np.median(dwell), 2)) + u' μs')
-        ui.meandtlabel.setText('Rate:' + str(round(num_events / t[-1], 1)) + ' events/s')
+        ui.meandelilabel.setText('Deli:' + str(mean_delta) + ' nA')
+        ui.meandwelllabel.setText('Dwell:' + str(median_duration) + u' μs')
+        ui.meandtlabel.setText('Rate:' + str(event_rate) + ' events/s')
 
-        try:
-            p2.data = p2.data[np.where(np.array(sdf.fn) != info_file_name)]
-        except Exception as e:
-            print(e)
-            raise IndexError
+        # Dataframe containing all information
         sdf = sdf[sdf.fn != info_file_name]
+        fn = pd.Series([info_file_name] * num_events)
+        color = pd.Series([pg.colorTuple(cb.color())] * num_events)
 
-        fn = pd.Series([info_file_name, ] * num_events)
-        color = pd.Series([pg.colorTuple(cb.color()), ] * num_events)
-
-        sdf = sdf.append(pd.DataFrame({'fn': fn, 'color': color, 'deli': del_i,
-                                       'frac': frac, 'dwell': dwell,
+        sdf = sdf.append(pd.DataFrame({'fn': fn, 'color': color, 'deli': deltas,
+                                       'frac': frac, 'durations': durations,
                                        'dt': dt, 'stdev': noise, 'startpoints': start_points,
                                        'endpoints': end_points}), ignore_index=True)
 
-        p2.addPoints(x=np.log10(dwell), y=frac, symbol='o', brush=(cb.color()), pen=None, size=10)
-
-        w1.addItem(p2)
+        # I think below should be trying to show only the points associated with current file
+        # But I'm not really sure
+        # try:
+        #     durations_plot.data = durations_plot.data[np.where(np.array(sdf.fn) != info_file_name)]
+        # except Exception as e:
+        #     print(e)
+        #     raise IndexError
+        durations_plot.addPoints(x=np.log10(durations), y=frac, symbol='o', brush=(cb.color()), pen=None, size=10)
+        # w1 is window 1???
+        w1.addItem(durations_plot)
         w1.setLogMode(x=True, y=False)
-        p1.autoRange()
         w1.autoRange()
-        ui.scatterplot.update()
         w1.setRange(yRange=[0, 1])
 
-        colors = sdf.color.unique()
-        for i, x in enumerate(colors):
-            frac_y, frac_x = np.histogram(sdf.frac[sdf.color == x],
-                                          bins=np.linspace(0, 1, int(ui.fracbins.text())))
-            deli_y, deli_x = np.histogram(sdf.deli[sdf.color == x],
-                                          bins=np.linspace(float(ui.delirange0.text()) * 10 ** -9,
-                                                           float(ui.delirange1.text()) * 10 ** -9,
-                                                           int(ui.delibins.text())))
-            dwell_y, dwell_x = np.histogram(np.log10(sdf.dwell[sdf.color == x]),
-                                            bins=np.linspace(float(ui.dwellrange0.text()),
-                                                             float(ui.dwellrange1.text()),
-                                                             int(ui.dwellbins.text())))
-            dt_y, dt_x = np.histogram(sdf.dt[sdf.color == x],
-                                      bins=np.linspace(float(ui.dtrange0.text()),
-                                                       float(ui.dtrange1.text()),
-                                                       int(ui.dtbins.text())))
+        ui.scatterplot.update()
 
-            # hist = pg.PlotCurveItem(frac_y, frac_x , stepMode = True, fillLevel=0, brush = x, pen = 'k')
-            hist = pg.BarGraphItem(height=frac_y, x0=frac_x[:-1], x1=frac_x[1:], brush=x)
-            w2.addItem(hist)
-            # hist = pg.PlotCurveItem(deli_x, deli_y , stepMode = True, fillLevel=0, brush = x, pen = 'k')
-            hist = pg.BarGraphItem(height=deli_y, x0=deli_x[:-1], x1=deli_x[1:], brush=x)
-            w3.addItem(hist)
-            # w3.autoRange()
-            w3.setRange(xRange=[float(ui.delirange0.text()) * 10 ** -9, float(ui.delirange1.text()) * 10 ** -9])
-            # hist = pg.PlotCurveItem(dwell_x, dwell_y , stepMode = True, fillLevel=0, brush = x, pen = 'k')
-            hist = pg.BarGraphItem(height=dwell_y, x0=dwell_x[:-1], x1=dwell_x[1:], brush=x)
-            w4.addItem(hist)
-            # hist = pg.PlotCurveItem(dt_x, dt_y , stepMode = True, fillLevel=0, brush = x, pen = 'k')
-            hist = pg.BarGraphItem(height=dt_y, x0=dt_x[:-1], x1=dt_x[1:], brush=x)
-            w5.addItem(hist)
+        update_histograms(sdf, ui, events, w2, w3, w4, w5)
 
-        self.save()
-        self.save_target()
-
-        self.threshold = threshold
-        self.num_events = num_events
+        # self.save()
+        # self.save_target()
+        # Reassigning class variables
+        self.events = events
         self.analyze_type = analyze_type
-        self.dwell = dwell
-        self.del_i = del_i
-        self.frac = frac
-        self.dt = dt
-        self.noise = noise
         self.sdf = sdf
 
     def save(self):
-        mat_file_name = self.mat_file_name
-        del_i = self.del_i
-        frac = self.frac
-        dwell = self.dwell
-        dt = self.dt
-        noise = self.noise
-        np.savetxt(mat_file_name + 'DB.txt',
-                   np.column_stack((del_i, frac, dwell, dt, noise)), delimiter='\t',
-                   header='\t'.join(["deli", "frac", "dwell", "dt", 'stdev']))
+        info_file_name = self.mat_file_name
+        events = self.events
+        deltas = [event.delta for event in events]
+        durations = [event.duration for event in events]
+        frac = calc_frac(events)
+        dt = calc_dt(events)
+        noise = [event.noise for event in events]
+        col_stack = np.column_stack((deltas, frac, durations, dt, noise))
+        header_names = '\t'.join(["deli", "frac", "dwell", "dt", 'stdev'])
+        np.savetxt(info_file_name + 'DB.txt', col_stack, delimiter='\t', header=header_names)
 
     # Called by Go button
     # TODO: Continue cleanump and input sanitizing
     def inspect_event(self, clicked=[].copy()):
-        num_events = self.num_events
-        if not num_events:
+        events = self.events
+        if not events:
             return
+        num_events = len(events)
+        baseline = events[0].baseline
+        sdf = self.sdf
         ui = self.ui
-        start_points = self.start_points
-        end_points = self.end_points
-        baseline = self.baseline
         data = self.data
         p2 = self.p2
         p3 = self.p3
-        sdf = self.sdf
         t = self.t
-        dwell = self.dwell
-        del_i = self.del_i
         mat_file_name = self.mat_file_name
 
         # Reset plot
@@ -822,21 +796,19 @@ class GUIForm(QtWidgets.QMainWindow):
             ui.eventnumberentry.setText(str(event_number))
 
         # plot event trace
-        start_pt = start_points[event_number]
-        end_pt = end_points[event_number]
-
-        adj_start = int(start_pt - event_buffer)
-        adj_end = int(end_pt + event_buffer)
+        event = events[event_number]
+        adj_start = int(event.start - event_buffer)
+        adj_end = int(event.end + event_buffer)
         p3.plot(t[adj_start:adj_end], data[adj_start:adj_end], pen='b')
 
         event_fit = np.concatenate((
             np.repeat(np.array([baseline]), event_buffer),
-            np.repeat(np.array([baseline - del_i[event_number]]), end_pt - start_pt),
+            np.repeat(np.array([baseline - event.delta]), data[event.start] - data[event.end]),
             np.repeat(np.array([baseline]), event_buffer)), 0)
         # plot event fit
         p3.plot(t[adj_start:adj_end], event_fit, pen=pg.mkPen(color=(173, 27, 183), width=3))
-
         p3.autoRange()
+
         # Mark event that is being viewed on scatter plot
 
         colors = np.array(sdf.color)
@@ -847,17 +819,16 @@ class GUIForm(QtWidgets.QMainWindow):
         p2.setBrush(colors, mask=None)
 
         # Mark event start and end points
-        event_start = int(start_pt)
-        event_end = int(end_pt)
-        p3.plot([t[event_start], t[event_start]],
-                [data[event_start], data[event_start]], pen=None,
+        p3.plot([t[event.start], t[event.start]],
+                [data[event.start], data[event.start]], pen=None,
                 symbol='o', symbolBrush='g', symbolSize=12)
-        p3.plot([t[event_end], t[event_end]],
-                [data[event_end], data[event_end]], pen=None,
+        p3.plot([t[event.end], t[event.end]],
+                [data[event.end], data[event.end]], pen=None,
                 symbol='o', symbolBrush='r', symbolSize=12)
 
-        ui.eventinfolabel.setText('Dwell Time=' + str(round(dwell[event_number], 2)) + u' μs,   Deli=' + str(
-            round(del_i[event_number] * BILLION, 2)) + ' nA')
+        duration = round(event.duration, 2)
+        delta = round(event.delta * BILLION, 2)
+        ui.eventinfolabel.setText('Dwell Time=' + str(duration) + u' μs,   Deli=' + str(delta) + ' nA')
 
     #        if ui.cusumstepentry.text() != 'None':
     #
@@ -902,9 +873,9 @@ class GUIForm(QtWidgets.QMainWindow):
 
     def next_event(self):
         element = self.ui.eventnumberentry
-        num_events = self.num_events
+        num_events = len(self.events)
         # Ignore command if there are no events
-        if not num_events:
+        if not self.events:
             return
         input_num = num_from_text_element(element, 1, num_events, default=1)
         element.setText(str(input_num + 1))
@@ -912,9 +883,9 @@ class GUIForm(QtWidgets.QMainWindow):
 
     def previous_event(self):
         element = self.ui.eventnumberentry
-        num_events = self.num_events
+        num_events = len(self.events)
         # Ignore command if there are no events
-        if not num_events:
+        if not self.events:
             return
         input_num = num_from_text_element(element, 1, num_events, default=1)
         element.setText(str(input_num - 1))
@@ -999,7 +970,7 @@ Allows user to select region of data to be removed
         self.t = t
         self.data = data
 
-    def base_line_calc(self):
+    def set_baseline(self):
         """
         Toggle that allows a region of the graph to be selected to used as the baseline.
         """
@@ -1056,108 +1027,46 @@ Allows user to select region of data to be removed
                                          'dwell', 'dt', 'startpoints', 'endpoints'])
 
     def delete_event(self):
-        # global start_points, end_points
-        num_events = self.num_events
-        if num_events is 0:
+        events = self.events
+        if not events:
             return
-        w2 = self.w2
-        w3 = self.w3
-        w4 = self.w4
-        w5 = self.w5
+        deltas = [event.delta for event in events]
+        durations = [event.duration for event in events]
+        frac = calc_frac(events)
+        dt = calc_dt(events)
+        noise = [event.noise for event in events]
         p2 = self.p2
         ui = self.ui
         sdf = self.sdf
         analyze_type = self.analyze_type
         mat_file_name = self.mat_file_name
-        del_i = self.del_i
-        dwell = self.dwell
-        dt = self.dt
-        frac = self.frac
-        noise = self.noise
-        start_points = self.start_points
-        end_points = self.end_points
 
         event_number = np.int(ui.eventnumberentry.text())
+        del events[event_number]
+        ui.eventnumberentry.setText(str(event_number))
         first_index = sdf.fn[sdf.fn == mat_file_name].index[0]
-        if event_number > num_events:
-            event_number = num_events - 1
-            ui.eventnumberentry.setText(str(event_number))
-        del_i = np.delete(del_i, event_number)
-        dwell = np.delete(dwell, event_number)
-        dt = np.delete(dt, event_number)
-        frac = np.delete(frac, event_number)
-        try:
-            noise = np.delete(noise, event_number)
-        except AttributeError as e:
-            print(e)
-            raise AttributeError
-        self.start_points = np.delete(start_points, event_number)
-        self.end_points = np.delete(end_points, event_number)
         p2.data = np.delete(p2.data, first_index + event_number)
 
-        num_events = len(dt)
-        ui.eventcounterlabel.setText('Events:' + str(num_events))
+        ui.eventcounterlabel.setText('Events:' + str(len(events)))
 
         sdf = sdf.drop(first_index + event_number).reset_index(drop=True)
         self.inspect_event()
 
-        w2.clear()
-        w3.clear()
-        w4.clear()
-        w5.clear()
-        colors = sdf.color.unique()
-        for i, x in enumerate(colors):
-            frac_y, frac_x = np.histogram(sdf.frac[sdf.color == x],
-                                          bins=np.linspace(0, 1, int(ui.fracbins.text())))
-            deli_y, deli_x = np.histogram(sdf.deli[sdf.color == x],
-                                          bins=np.linspace(float(ui.delirange0.text()) * 10 ** -9,
-                                                           float(ui.delirange1.text()) * 10 ** -9,
-                                                           int(ui.delibins.text())))
-            dwell_y, dwell_x = np.histogram(np.log10(sdf.dwell[sdf.color == x]),
-                                            bins=np.linspace(float(ui.dwellrange0.text()),
-                                                             float(ui.dwellrange1.text()),
-                                                             int(ui.dwellbins.text())))
-            dty, dtx = np.histogram(sdf.dt[sdf.color == x],
-                                    bins=np.linspace(float(ui.dtrange0.text()), float(ui.dtrange1.text()),
-                                                     int(ui.dtbins.text())))
-
-            #            hist = pg.PlotCurveItem(frac_y, frac_x , stepMode = True, fillLevel=0, brush = x, pen = 'k')
-
-            hist = pg.BarGraphItem(height=frac_y, x0=frac_x[:-1], x1=frac_x[1:], brush=x)
-            w2.addItem(hist)
-
-            #            hist = pg.PlotCurveItem(deli_x, deli_y , stepMode = True, fillLevel=0, brush = x, pen = 'k')
-
-            hist = pg.BarGraphItem(height=deli_y, x0=deli_x[:-1], x1=deli_x[1:], brush=x)
-            w3.addItem(hist)
-            #            w3.autoRange()
-            w3.setRange(
-                xRange=[float(ui.delirange0.text()) * 10 ** -9, float(ui.delirange1.text()) * 10 ** -9])
-
-            #            hist = pg.PlotCurveItem(dwell_x, dwell_y , stepMode = True, fillLevel=0, brush = x, pen = 'k')
-
-            hist = pg.BarGraphItem(height=dwell_y, x0=dwell_x[:-1], x1=dwell_x[1:], brush=x)
-            w4.addItem(hist)
-
-            #            hist = pg.PlotCurveItem(dtx, dty , stepMode = True, fillLevel=0, brush = x, pen = 'k')
-
-            hist = pg.BarGraphItem(height=dty, x0=dtx[:-1], x1=dtx[1:], brush=x)
-            w5.addItem(hist)
+        self.w2.clear()
+        self.w3.clear()
+        self.w4.clear()
+        self.w5.clear()
+        update_histograms(sdf, ui, events, self.w2, self.w3, self.w4, self.w5)
 
         if analyze_type == 'coarse':
             self.save()
             self.save_target()
         if analyze_type == 'fine':
-            np.savetxt(mat_file_name + 'llDB.txt',
-                       np.column_stack((del_i, frac, dwell, dt, noise)),
-                       delimiter='\t', header="\t".join(["deli", "frac", "dwell", "dt", 'stdev']))
+            col_stack = np.column_stack((deltas, frac, durations, dt, noise))
+            header_names = "\t".join(["deli", "frac", "dwell", "dt", 'stdev'])
+            np.savetxt(mat_file_name + 'llDB.txt', col_stack, delimiter='\t', header=header_names)
 
         self.ui = ui
-        self.dwell = dwell
-        self.del_i = del_i
-        self.dt = dt
-        self.frac = frac
-        self.noise = noise
 
     def invert_data(self):
         data = self.data
@@ -1199,7 +1108,7 @@ Allows user to select region of data to be removed
 
     # move outside class
     def concatenate_text(self):
-        wd = self.wd
+        wd = os.getcwd()
         if self.data is None:
             return
         if not wd:
@@ -1293,47 +1202,6 @@ Allows user to select region of data to be removed
 
         p1.autoRange()
 
-    def save_cat_trace(self):
-        data = self.data
-        if data is None:
-            return
-        ui = self.ui
-        dt = self.dt
-        start_points = self.start_points
-        end_points = self.end_points
-        event_buffer = np.int(ui.eventbufferentry.text())
-        num_events = len(dt)
-        baseline = self.baseline
-        del_i = self.del_i
-        output_sample_rate = self.output_sample_rate
-        mat_file_name = self.mat_file_name
-        cat_data = None
-        cat_fits = None
-        # NOTE: Below was changed from idx in range(num_events - 1) due to assumed off-by-one error
-        # Section with similar code was changed as well
-        for idx in range(1, num_events):
-            adj_start = start_points[idx] - event_buffer
-            adj_end = end_points[idx] + event_buffer
-            if adj_end > start_points[idx + 1]:
-                print('overlapping event')
-            else:
-                data_pts = generate_data_pts(data, adj_start, adj_end)
-                event_pts = generate_event_pts(adj_start, adj_end, event_buffer, baseline, del_i[idx])
-                if idx is 0:
-                    cat_data = data_pts
-                    cat_fits = event_pts
-                else:
-                    cat_data = np.concatenate((cat_data, data_pts), 0)
-                    cat_fits = np.concatenate((cat_fits, event_pts), 0)
-
-        t_cat = np.arange(0, len(cat_data)) / output_sample_rate
-        cat_data = cat_data[::10]
-        cat_data.astype('d').tofile(mat_file_name + '_cattrace.bin')
-
-        self.cat_data = cat_data
-        self.cat_fits = cat_fits
-        self.t_cat = t_cat
-
     def keyPressEvent(self, event):
         key = event.key()
         qt = QtCore.Qt
@@ -1354,45 +1222,15 @@ Allows user to select region of data to be removed
         elif self.cut_region.isVisible and key == qt.Key_Escape:
             self.cut_region.hide()
 
-    # Static ?
-    def save_event_fits(self):
-        data = self.data
-        if data is None:
+    def save_cat_trace(self):
+        if self.data is None:
             return
-        ui = self.ui
-        dt = self.dt
-        start_points = self.start_points
-        end_points = self.end_points
-        event_buffer = np.int(ui.eventbufferentry.text())
-        num_events = len(dt)
-        baseline = self.baseline
-        del_i = self.del_i
-        output_sample_rate = self.output_sample_rate
-        mat_file_name = self.mat_file_name
-        cat_data = None
-        cat_fits = None
+        save_cat_data(self.data, self.events, self.ui, self.mat_file_name)
 
-        for idx in range(num_events):
-            adj_start = start_points[idx] - event_buffer
-            adj_end = end_points[idx] + event_buffer
-            if adj_end > start_points[idx + 1]:
-                print('overlapping event')
-            else:
-                data_pts = generate_data_pts(data, adj_start, adj_end)
-                event_pts = generate_event_pts(adj_start, adj_end, event_buffer, baseline, del_i[idx])
-                if idx is 0:
-                    cat_data = data_pts
-                    cat_fits = event_pts
-                else:
-                    cat_data = np.concatenate((cat_data, data_pts), 0)
-                    cat_fits = np.concatenate((cat_fits, event_pts), 0)
-
-        t_cat = np.arange(0, len(cat_data)) / output_sample_rate
-        cat_fits.astype('d').tofile(mat_file_name + '_cattrace.bin')
-
-        self.cat_fits = cat_fits
-        self.cat_data = cat_data
-        self.t_cat = t_cat
+    def save_event_fits(self):
+        if self.data is None:
+            return
+        save_cat_data(self.data, self.events, self.ui, self.mat_file_name)
 
     def cusum(self):
         ui = self.ui
@@ -1404,7 +1242,7 @@ Allows user to select region of data to be removed
         dt = 1 / self.output_sample_rate
         cusum_thresh = np.float64(ui_bp.cusumthreshentry.text())
         step_size = np.float64(ui.levelthresholdentry.text())
-        cusum = detect_cusum(self.data, base_sd=self.var, dt=dt, threshhold=cusum_thresh, stepsize=step_size,
+        cusum = cusum(self.data, base_sd=self.var, dt=dt, threshhold=cusum_thresh, stepsize=step_size,
                              minlength=10)
         np.savetxt(self.mat_file_name + '_Levels.txt', np.abs(cusum['jumps'] * 10 ** 12), delimiter='\t')
 
@@ -1441,30 +1279,14 @@ Allows user to select region of data to be removed
         print("Cusum Params" + str(cusum[self.threshold], cusum['stepsize']))
 
     def save_target(self):
-        batch_info = self.batch_info
-        mat_file_name = self.mat_file_name
-        del_i = self.del_i
-        frac = self.frac
-        dwell = self.dwell
-        dt = self.dt
-        noise = self.noise
-        start_points = self.start_points
-        end_points = self.end_points
-        cut_start = batch_info["cutstart"]
-        cut_end = batch_info["cutend"]
-        batch_info = pd.DataFrame({'cutstart': cut_start, 'cutend': cut_end})
-        batch_info = batch_info.dropna()
-        batch_info = batch_info.append(pd.DataFrame({'deli': del_i, 'frac': frac, 'dwell': dwell, 'dt': dt,
-                                                     'noise': noise, 'startpoints': start_points,
-                                                     'endpoints': end_points}),
-                                       ignore_index=True)
-        batch_info.to_pickle(mat_file_name + 'batchinfo.pkl')
-        self.batch_info = batch_info
+        self.batch_info = save_batch_info(self.events, self.batch_info, self.mat_file_name)
 
     def batch_info_dialog(self):
-        min_dwell = self.min_dwell
-        min_frac = self.min_frac
-        min_level_t = self.min_level_t
+        events = self.events
+        ui_bp = self.bp.uibp
+        min_dwell = min([event.duration for event in events])
+        min_frac = min(calc_frac(events))
+        min_level_t = float(ui_bp.minleveltbox.text()) * 10**-6
         sample_rate = self.sample_rate
         lp_filter_cutoff = self.lp_filter_cutoff
         cusum_step = self.cusum_step
@@ -1474,7 +1296,6 @@ Allows user to select region of data to be removed
         p1.clear()
         # self.batch_processor = BatchProcessor()
         # self.batch_processor.show()
-        ui_bp = self.bp.uibp
         try:
             ui_bp.mindwellbox.setText(str(min_dwell))
             ui_bp.minfracbox.setText(str(min_frac))
@@ -1489,231 +1310,191 @@ Allows user to select region of data to be removed
         ui_bp.okbutton.clicked.connect(self.batch_process)
 
     # TODO: Reorganize
-    # def batch_process(self, data, ui):
-    #     # global end_points, start_points
-    #     self.analyze_type = 'fine'
-    #     ui_bp = self.bp.uibp
-    #     # p1 = self.p1
-    #     # min_dwell = self.min_dwell
-    #     # min_frac = self.min_frac
-    #     # min_level_t = self.min_level_t
-    #     # sample_rate = self.sample_rate
-    #     # lp_filter_cutoff = self.LPfiltercutoff
-    #     # max_states = self.max_states
-    #     # file_list = self.file_list
-    #     data_file_name = self.data_file_name
-    #     wd = self.wd
-    #     has_baseline_been_set = self.has_baseline_been_set
-    #     baseline = self.baseline
-    #     var = self.var
-    #     output_sample_rate = self.output_sample_rate
-    #     mat_file_name = self.mat_file_name
-    #     sdf = self.sdf
-    #     # num_events = self.num_events
-    #     dt = self.dt
-    #     del_i = self.del_i
-    #     frac = self.frac
-    #     dwell = self.dwell
-    #     noise = self.noise
-    #     p1 = self.p1
-    #     p2 = self.p2
-    #     w1 = self.w1
-    #     w2 = self.w2
-    #     w3 = self.w3
-    #     w4 = self.w4
-    #     w5 = self.w5
-    #     cb = self.cb
-    #     start_points = self.start_points
-    #     end_points = self.end_points
-    #
-    #     invert_status = ui_bp.invertCheckBox.isChecked()
-    #     ui_bp.close()
-    #     p1.setDownsampling(ds=False)
-    #     min_dwell = np.float64(ui_bp.mindwellbox.text())
-    #     min_frac = np.float64(ui_bp.minfracbox.text())
-    #     min_level_t = np.float64(ui_bp.minleveltbox.text()) * 10 ** -6
-    #     sample_rate = ui_bp.sampratebox.text()
-    #     lp_filter_cutoff = ui_bp.LPfilterbox.text()
-    #     ui.outputsamplerateentry.setText(sample_rate)
-    #     ui.LPentry.setText(lp_filter_cutoff)
-    #     cusum_step = np.float64(ui_bp.cusumstepentry.text())
-    #     cusum_thresh = np.float64(ui_bp.cusumthreshentry.text())
-    #     max_states = np.int(ui_bp.maxLevelsBox.text())
-    #     self_correct = ui_bp.selfCorrectCheckBox.isChecked()
-    #
-    #     try:
-    #         # attempt to open dialog from most recent directory
-    #         file_list = QtWidgets.QFileDialog.getOpenFileNames(self, 'Select Files', wd, "*.pkl")[0]
-    #         wd = os.path.dirname(file_list[0])
-    #     except TypeError as e:
-    #         print(e)
-    #         # if no recent directory exists open from working directory
-    #         file_list = QtWidgets.QFileDialog.getOpenFileNames(self, 'Select Files', os.getcwd(), "*.pkl")[0]
-    #         print(file_list)
-    #         # self.wd=os.path.dirname(str(self.filelist[0][0]))
-    #     except IOError as e:
-    #         print(e)
-    #         # if user cancels during file selection, exit loop
-    #         return
-    #
-    #     event_buffer = np.int(ui.eventbufferentry.text())
-    #     event_time = [0]
-    #
-    #     for f in file_list:
-    #         batch_info = pd.read_pickle(f)
-    #         try:
-    #             data_file_name = f[:-13] + '.opt'
-    #             self.load(load_and_plot=False)
-    #         except IOError:
-    #             data_file_name = f[:-13] + '.log'
-    #             self.load(load_and_plot=False)
-    #         if invert_status:
-    #             data = -data
-    #             if not has_baseline_been_set:
-    #                 baseline = np.median(data)
-    #                 var = np.std(data)
-    #
-    #         try:
-    #             cs = batch_info.cutstart[np.isfinite(batch_info.cutstart)]
-    #             ce = batch_info.cutend[np.isfinite(batch_info.cutend)]
-    #             for i, cut in enumerate(cs):
-    #                 data = np.delete(data, np.arange(np.int(cut * output_sample_rate),
-    #                                                  np.int(ce[i] * output_sample_rate)))
-    #         except TypeError as e:
-    #             print(e)
-    #
-    #         del_i = np.array(batch_info.deli[np.isfinite(batch_info.deli)])
-    #         frac = np.array(batch_info.frac[np.isfinite(batch_info.frac)])
-    #         dwell = np.array(batch_info.dwell[np.isfinite(batch_info.dwell)])
-    #         dt = np.array(batch_info.dt[np.isfinite(batch_info.dt)])
-    #         start_points = np.array(batch_info.startpoints[np.isfinite(batch_info.startpoints)])
-    #         end_points = np.array(batch_info.endpoints[np.isfinite(batch_info.endpoints)])
-    #         noise = (10 ** 10) * np.array(
-    #             [np.std(data[int(x):int(end_points[i])]) for i, x in enumerate(start_points)])
-    #
-    #         with pg.ProgressDialog("Analyzing...", 0, len(dwell)) as dlg:
-    #             for i, dwell in enumerate(dwell):
-    #                 # t_offset = (event_time[-1] + event_buffer) / output_sample_rate
-    #                 if i < len(dt) - 1 and dwell > min_dwell and frac[i] > min_frac:
-    #                     if end_points[i] + event_buffer > start_points[i + 1]:
-    #                         print('overlapping event')
-    #                         frac[i] = np.NaN
-    #                         del_i[i] = np.NaN
-    #
-    #                     else:
-    #                         eventdata = data[int(start_points[i] - event_buffer):int(end_points[i] + event_buffer)]
-    #                         event_time = np.arange(0, len(eventdata)) + event_buffer + event_time[-1]
-    #                         # self.p1.plot(eventtime/self.outputsamplerate, eventdata,pen='b')
-    #                         cusum = detect_cusum(eventdata, np.std(eventdata[0:event_buffer]),
-    #                                              1 / output_sample_rate, threshhold=cusum_thresh,
-    #                                              stepsize=cusum_step,
-    #                                              minlength=min_level_t * output_sample_rate,
-    #                                              max_states=max_states)
-    #
-    #                         while len(cusum['CurrentLevels']) < 3:
-    #                             cusum_thresh = cusum_thresh * .9
-    #                             cusum_step = cusum_step * .9
-    #                             cusum = detect_cusum(eventdata, base_sd=np.std(eventdata[0:event_buffer]),
-    #                                                  dt=1 / output_sample_rate, threshhold=cusum_thresh,
-    #                                                  stepsize=cusum_step,
-    #                                                  minlength=min_level_t * output_sample_rate,
-    #                                                  max_states=max_states)
-    #                             print('Not Sensitive Enough')
-    #
-    #                         frac[i] = (np.max(cusum['CurrentLevels']) - np.min(cusum['CurrentLevels'])) / np.max(
-    #                             cusum['CurrentLevels'])
-    #                         del_i[i] = (np.max(cusum['CurrentLevels']) - np.min(cusum['CurrentLevels']))
-    #
-    #                         if self_correct:
-    #                             cusum_thresh = cusum['Threshold']
-    #                             cusum_step = cusum['stepsize']
-    #                 # Plotting
-    #                 # for j, level in enumerate(cusum['CurrentLevels']):
-    #                 #     self.p1.plot(y=2*[level], x=t_offset + cusum['EventDelay'][j:j+2], pen=pg.mkPen('r', width=5))
-    #                 #     try:
-    #                 #         self.p1.plot(y=cusum['CurrentLevels'][j:j+2], x=t_offset + 2*[cusum['EventDelay'][j+1]],
-    #                 #                      pen=pg.mkPen('r', width=5))
-    #                 #     except Exception as e:
-    #                 #         print(e)
-    #                 #         pass
-    #                 dlg += 1
-    #             # End Plotting
-    #
-    #         dwell = dwell[np.isfinite(del_i)]
-    #         dt = dt[np.isfinite(del_i)]
-    #         noise = noise[np.isfinite(del_i)]
-    #         frac = frac[np.isfinite(del_i)]
-    #         start_points = start_points[np.isfinite(del_i)]
-    #         end_points = end_points[np.isfinite(del_i)]
-    #         del_i = del_i[np.isfinite(del_i)]
-    #
-    #         np.savetxt(mat_file_name + 'llDB.txt',
-    #                    np.column_stack((del_i, frac, dwell, dt, noise)),
-    #                    delimiter='\t', header="\t".join(["del_i", "frac", "dwell", "dt", 'stdev']))
-    #
-    #     p1.autoRange()
-    #     # Plotting Histograms
-    #     sdf = sdf[sdf.fn != mat_file_name]
-    #     num_events = len(dt)
-    #
-    #     fn = pd.Series([mat_file_name, ] * num_events)
-    #     color = pd.Series([pg.colorTuple(cb.color()), ] * num_events)
-    #
-    #     sdf = sdf.append(pd.DataFrame({'fn': fn, 'color': color, 'del_i': del_i,
-    #                                    'frac': frac, 'dwell': dwell,
-    #                                    'dt': dt, 'startpoints': start_points,
-    #                                    'endpoints': end_points}), ignore_index=True)
-    #
-    #     p2.addPoints(x=np.log10(dwell), y=frac,
-    #                  symbol='o', brush=(cb.color()), pen=None, size=10)
-    #
-    #     w1.addItem(p2)
-    #     w1.setLogMode(x=True, y=False)
-    #     p1.autoRange()
-    #     w1.autoRange()
-    #     ui.scatterplot.update()
-    #     w1.setRange(yRange=[0, 1])
-    #
-    #     colors = sdf.color.unique()
-    #     for i, x in enumerate(colors):
-    #         frac_y, frac_x = np.histogram(sdf.frac[(sdf.color == x) & (not np.isnan(sdf.frac))],
-    #                                       bins=np.linspace(0, 1, int(ui.fracbins.text())))
-    #         deli_y, deli_x = np.histogram(sdf.deli[(sdf.color == x) & (not np.isnan(sdf.deli))],
-    #                                       bins=np.linspace(float(ui.delirange0.text()) * 10 ** -9,
-    #                                                        float(ui.delirange1.text()) * 10 ** -9,
-    #                                                        int(ui.delibins.text())))
-    #         dwell_y, dwell_x = np.histogram(np.log10(sdf.dwell[sdf.color == x]),
-    #                                         bins=np.linspace(float(ui.dwellrange0.text()),
-    #                                                          float(ui.dwellrange1.text()),
-    #                                                          int(ui.dwellbins.text())))
-    #         dt_y, dt_x = np.histogram(sdf.dt[sdf.color == x],
-    #                                   bins=np.linspace(float(ui.dtrange0.text()), float(ui.dtrange1.text()),
-    #                                                    int(ui.dtbins.text())))
-    #         # w2.addItem(pg.PlotCurveItem(frac_y, frac_x , stepMode = True, fillLevel=0, brush = x, pen = 'k'))
-    #         # w3.addItem(pg.PlotCurveItem(deli_x, deli_y , stepMode = True, fillLevel=0, brush = x, pen = 'k'))
-    #         # w4.addItem(pg.PlotCurveItem(dwell_x, dwell_y , stepMode = True, fillLevel=0, brush = x, pen = 'k'))
-    #         # w5.addItem(pg.PlotCurveItem(dt_x, dt_y , stepMode = True, fillLevel=0, brush = x, pen = 'k'))
-    #         w2.addItem(pg.BarGraphItem(height=frac_y, x0=frac_x[:-1], x1=frac_x[1:], brush=x))
-    #         w3.addItem(pg.BarGraphItem(height=deli_y, x0=deli_x[:-1], x1=deli_x[1:], brush=x))
-    #         w3.setRange(xRange=[float(ui.delirange0.text()) * 10 ** -9, float(ui.delirange1.text()) * 10 ** -9])
-    #         # self.w3.autoRange()
-    #         w4.addItem(pg.BarGraphItem(height=dwell_y, x0=dwell_x[:-1], x1=dwell_x[1:], brush=x))
-    #         w5.addItem(pg.BarGraphItem(height=dt_y, x0=dt_x[:-1], x1=dt_x[1:], brush=x))
-    #
-    #     print('\007')
-    #
-    #     self.wd = wd
-    #     self.baseline = baseline
-    #     self.var = var
-    #     self.sdf = sdf
-    #     self.dwell = dwell
-    #     self.dt = dt
-    #     self.noise = noise
-    #     self.frac = frac
-    #     self.start_points = start_points
-    #     self.end_points = end_points
-    #     self.del_i = del_i
-    #     self.data_file_name = data_file_name
+    def batch_process(self):
+        events = self.events
+        if not events:
+            return
+        data = self.data
+        ui = self.ui
+        self.analyze_type = 'fine'
+        ui_bp = self.bp.uibp
+        data_file_name = self.data_file_name
+        wd = os.getcwd()
+        has_baseline_been_set = self.has_baseline_been_set
+        baseline = self.baseline
+        var = self.var
+        output_sample_rate = self.output_sample_rate
+        info_file_name = self.mat_file_name
+        sdf = self.sdf
+        p1 = self.p1
+        p2 = self.p2
+        w1 = self.w1
+        w2 = self.w2
+        w3 = self.w3
+        w4 = self.w4
+        w5 = self.w5
+        cb = self.cb
+
+        invert_status = ui_bp.invertCheckBox.isChecked()
+        ui_bp.close()
+        p1.setDownsampling(ds=False)
+        min_dwell = np.float64(ui_bp.mindwellbox.text())
+        min_frac = np.float64(ui_bp.minfracbox.text())
+        min_level_t = np.float64(ui_bp.minleveltbox.text()) * 10 ** -6
+        sample_rate = ui_bp.sampratebox.text()
+        lp_filter_cutoff = ui_bp.LPfilterbox.text()
+        ui.outputsamplerateentry.setText(sample_rate)
+        ui.LPentry.setText(lp_filter_cutoff)
+        cusum_step = np.float64(ui_bp.cusumstepentry.text())
+        cusum_thresh = np.float64(ui_bp.cusumthreshentry.text())
+        max_states = np.int(ui_bp.maxLevelsBox.text())
+        self_correct = ui_bp.selfCorrectCheckBox.isChecked()
+
+        start_points = [event.start for event in events]
+        end_points = [event.end for event in events]
+        noise = [event.noise for event in events]
+        deltas = [event.delta for event in events]
+        durations = [event.duration for event in events]
+        frac = calc_frac(events)
+        dt = calc_dt(events)
+
+        try:
+            # attempt to open dialog from most recent directory
+            file_list = QtWidgets.QFileDialog.getOpenFileNames(self, 'Select Files', wd, "*.pkl")[0]
+            wd = os.path.dirname(file_list[0])
+        except TypeError as e:
+            print(e)
+            # if no recent directory exists open from working directory
+            file_list = QtWidgets.QFileDialog.getOpenFileNames(self, 'Select Files', os.getcwd(), "*.pkl")[0]
+            print(file_list)
+            # self.wd=os.path.dirname(str(self.filelist[0][0]))
+        except IOError as e:
+            print(e)
+            # if user cancels during file selection, exit loop
+            return
+
+        event_buffer = np.int(ui.eventbufferentry.text())
+        event_time = [0]
+        if len(file_list) == 0:
+            return
+        for f in file_list:
+            batch_info = pd.read_pickle(f)
+            try:
+                data_file_name = f[:-13] + '.opt'
+                self.load(load_and_plot=False)
+            except IOError:
+                data_file_name = f[:-13] + '.log'
+                self.load(load_and_plot=False)
+            if invert_status:
+                data = -data
+                if not has_baseline_been_set:
+                    baseline = np.median(data)
+                    var = np.std(data)
+
+            try:
+                cs = batch_info.cutstart[np.isfinite(batch_info.cutstart)]
+                ce = batch_info.cutend[np.isfinite(batch_info.cutend)]
+                for i, cut in enumerate(cs):
+                    data = np.delete(data, np.arange(np.int(cut * output_sample_rate),
+                                                     np.int(ce[i] * output_sample_rate)))
+            except TypeError as e:
+                print(e)
+
+
+
+            with pg.ProgressDialog("Analyzing...", 0, len(durations)) as dlg:
+                for i, event in enumerate(events):
+                    # t_offset = (event_time[-1] + event_buffer) / output_sample_rate
+                    if not (i < len(dt) - 1 and durations > min_dwell and frac[i] > min_frac):
+                        continue
+
+                    if end_points[i] + event_buffer > start_points[i + 1]:
+                        print('overlapping event')
+                        frac[i] = np.NaN
+                        deltas[i] = np.NaN
+
+                    else:
+                        eventdata = data[int(event.start - event_buffer):int(event.end + event_buffer)]
+                        event_time = np.arange(0, len(eventdata)) + event_buffer + event_time[-1]
+                        # self.p1.plot(eventtime/self.outputsamplerate, eventdata,pen='b')
+                        cusum = cusum(eventdata, np.std(eventdata[0:event_buffer]),
+                                             1 / output_sample_rate, threshhold=cusum_thresh,
+                                             stepsize=cusum_step,
+                                             minlength=min_level_t * output_sample_rate,
+                                             max_states=max_states)
+
+                        while len(cusum['CurrentLevels']) < 3:
+                            cusum_thresh = cusum_thresh * .9
+                            cusum_step = cusum_step * .9
+                            cusum = cusum(eventdata, base_sd=np.std(eventdata[0:event_buffer]),
+                                                 dt=1 / output_sample_rate, threshhold=cusum_thresh,
+                                                 stepsize=cusum_step,
+                                                 minlength=min_level_t * output_sample_rate,
+                                                 max_states=max_states)
+                            print('Not Sensitive Enough')
+
+                        frac[i] = (np.max(cusum['CurrentLevels']) - np.min(cusum['CurrentLevels'])) / np.max(
+                            cusum['CurrentLevels'])
+                        deltas[i] = (np.max(cusum['CurrentLevels']) - np.min(cusum['CurrentLevels']))
+
+                        if self_correct:
+                            cusum_thresh = cusum['Threshold']
+                            cusum_step = cusum['stepsize']
+                    # Plotting
+                    # for j, level in enumerate(cusum['CurrentLevels']):
+                    #     self.p1.plot(y=2*[level], x=t_offset + cusum['EventDelay'][j:j+2], pen=pg.mkPen('r', width=5))
+                    #     try:
+                    #         self.p1.plot(y=cusum['CurrentLevels'][j:j+2], x=t_offset + 2*[cusum['EventDelay'][j+1]],
+                    #                      pen=pg.mkPen('r', width=5))
+                    #     except Exception as e:
+                    #         print(e)
+                    #         pass
+                    dlg += 1
+                # End Plotting
+
+            durations = durations[np.isfinite(deltas)]
+            dt = dt[np.isfinite(deltas)]
+            noise = noise[np.isfinite(deltas)]
+            frac = frac[np.isfinite(deltas)]
+            start_points = start_points[np.isfinite(deltas)]
+            end_points = end_points[np.isfinite(deltas)]
+            deltas = deltas[np.isfinite(deltas)]
+
+            np.savetxt(info_file_name + 'llDB.txt',
+                       np.column_stack((deltas, frac, durations, dt, noise)),
+                       delimiter='\t', header="\t".join(["del_i", "frac", "dwell", "dt", 'stdev']))
+
+        p1.autoRange()
+        # Plotting Histograms
+        sdf = sdf[sdf.fn != info_file_name]
+        num_events = len(dt)
+
+        fn = pd.Series([info_file_name, ] * num_events)
+        color = pd.Series([pg.colorTuple(cb.color()), ] * num_events)
+
+        sdf = sdf.append(pd.DataFrame({'fn': fn, 'color': color, 'del_i': deltas,
+                                       'frac': frac, 'dwell': durations,
+                                       'dt': dt, 'startpoints': start_points,
+                                       'endpoints': end_points}), ignore_index=True)
+
+        p2.addPoints(x=np.log10(durations), y=frac,
+                     symbol='o', brush=(cb.color()), pen=None, size=10)
+
+        w1.addItem(p2)
+        w1.setLogMode(x=True, y=False)
+        p1.autoRange()
+        w1.autoRange()
+        ui.scatterplot.update()
+        w1.setRange(yRange=[0, 1])
+
+        update_histograms(sdf, ui, events, w2, w3, w4, w5)
+
+        print('\007')
+
+        self.baseline = baseline
+        self.var = var
+        self.sdf = sdf
+        self.data_file_name = data_file_name
 
     @staticmethod
     def size_pore():
