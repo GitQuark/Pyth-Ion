@@ -85,9 +85,10 @@ class Event(object):
 # arranged as [mean, start, [mean, start, end], [mean, start, end], end]
 # Where the nested pairs are sub events. Those events may themselves contain sub-events
 def cusum(data, base_sd, output_sample_rate, baseline=None,
-          deviation_length=1000, stepsize=3, deviation_size=3.5, anchor=0, level=0):
+          deviation_length=1000, stepsize=3, deviation_size=3.5, anchor=0, level=0, max_level=3):
     """
 
+    :param max_level:
     :param output_sample_rate:
     :param baseline:
     :param deviation_length:
@@ -148,34 +149,20 @@ def cusum(data, base_sd, output_sample_rate, baseline=None,
         limit = new_control_limit(old_limit, deviation, k)
         limits.append(limit)
         # Assumes the data starts at universal baseline
-        # print(level, n, limit)
-        old_idx = 0
         if limit[0] > h:  # Handles dipping into event
-            # Deviation has been detected
-            # for old_idx, old_point in enumerate(data[n::-1]):
-            #     # Work backwards to find first point in event that went below event baseline
-            #     if old_point > running_mean:
-            #         break
-            if level > 1:  # Don't get carried away
+            too_deep = level > max_level
+            if too_deep:  # Don't get carried away
                 break
-            # event_start = n - old_idx + 1
-            event = cusum(data, running_sd, output_sample_rate, baseline=running_mean,
-                          anchor=n, level=level+1, stepsize=stepsize)
+            limits[-1] = (0, 0)  # Reset the accumulated errors
+            event = cusum(data, running_sd, output_sample_rate, baseline=running_mean, anchor=n, level=level+1,
+                          stepsize=stepsize, max_level=max_level)
             events.append(event)
             n = event.rise_end  # No need to add anything since n is incremented below
-            limits[-1] = (0, 0)  # Reset the accumulated errors
             subevent_offset += event.rise_end - event.fall_start
         elif limit[1] > h:  # Handles returning to baseline
-            # for old_idx, old_point in enumerate(data[n::-1]):
-            #     # Work backwards to find last point in event that was below baseline
-            #     if old_point < data[anchor]:  # data[anchor] is the start of falling edge of event
-            #         break
-            # end_idx = n - old_idx
             break
         n += stepsize
 
-    # if not end_idx:  # If no deviations have occured
-    #     end_idx = len(data) - 1
     if level == 0:
         return events
     else:
@@ -214,7 +201,7 @@ if __name__ == "__main__":
     baseline = np.mean(data)
     # events = analyze(data, threshold, out_sample_rate)
     # num_events = len(events)
-    cusum_result = cusum(data[33500000:33790000], base_sd, out_sample_rate)
+    cusum_result = cusum(data, base_sd, out_sample_rate)
     # frac = [event.local_baseline / baseline for event in events]
     # Time between the starts of events?
     # dt = np.concatenate([[0], np.diff([event.start for event in events]) / out_sample_rate])
