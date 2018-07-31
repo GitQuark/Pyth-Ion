@@ -7,42 +7,6 @@ from scipy import io as spio
 import numpy as np
 
 
-class Event(object):
-    subevents: List
-
-    def __init__(self, data, start, end, baseline, output_sample_rate, subevents=[].copy()):
-        # Start and end are the indicies in the data
-        self.baseline = baseline
-        self.output_sample_rate = output_sample_rate
-
-        self.local_baseline = np.mean(data[start:end + 1])  # Could be made more precise, but good enough
-        # True can false are converted to 1 and 0, np.argmax returns index of first ture value
-        true_start = start - np.argmax(data[start::-1] > self.local_baseline) + 1
-        true_end = end - np.argmax(data[end::-1] < self.local_baseline)
-        self.start = true_start
-        self.end = true_end
-
-        self.data = data[self.start:self.end + 1]
-        # TODO: Fix slight error in calculations; To much past the tails is included in fall and rise
-        # Rise_end seems to have consistent issues
-        self.noise = np.std(self.data)
-        self.duration = (self.end - self.start) / output_sample_rate  # In seconds
-        self.delta = baseline - np.min(self.data)  # In Volts
-        fall_offset = np.argmax(data[self.start::-1] > baseline)
-        rise_offset = 0
-        if self.end < len(data):  # Condition can fail if voltage has not returned to normal by the end of the data
-            rise_offset = np.argmax(data[self.end:] > baseline)
-
-        self.fall_start = self.start - fall_offset + 1
-        self.rise_end = self.end + rise_offset - 1
-        self.full_data = data[self.fall_start:self.rise_end + 1]
-
-        self.subevents = subevents
-
-    def __repr__(self):
-        return str((self.start/self.output_sample_rate, self.end/self.output_sample_rate))
-
-
 # Recursive function that will detect events and output a nested data structure
 # arranged as [mean, start, [mean, start, end], [mean, start, end], end]
 # Where the nested pairs are sub events. Those events may themselves contain sub-events
