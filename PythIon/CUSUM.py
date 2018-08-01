@@ -1,6 +1,6 @@
 import math
 from typing import List, Tuple
-from PythIon.Utility import load_log_file
+from PythIon.Utility import load_log_file, Event, analyze
 
 from scipy import signal
 from scipy import io as spio
@@ -95,24 +95,6 @@ def cusum(data, base_sd, output_sample_rate, baseline=None,
         return Event(data, anchor, n, baseline, output_sample_rate, events)
 
 
-# Takes the data and returns list of event objects.
-def analyze(data, threshold, output_sample_rate):
-    # Find all the points below thrshold
-    below = np.where(data < threshold)[0]
-    start_and_end = np.diff(below)
-    transitions = np.where(start_and_end > 1)[0]
-    # Assuming that record starts and end at baseline
-    # below[transitions] give starting points, below[transitions + 1] gives event end points
-    start_idxs = np.concatenate([[0], transitions + 1])
-    end_idxs = np.concatenate([transitions, [len(below) - 1]])
-    events_intervals = list(zip(below[start_idxs], below[end_idxs]))
-    baseline = np.mean(data)
-    events = []
-    for interval in events_intervals:
-        events.append(Event(data, interval[0], interval[1], baseline, output_sample_rate))
-    return events
-
-
 if __name__ == "__main__":
     # Mat file is matlab data. Should be in a more portable format (JSON?); Was changed to info_file_name
     info_file_name = r"C:\Users\Noah PC\PycharmProjects\Pyth-Ion\PythIon\Sample Data\3500bp-200mV.mat"
@@ -125,12 +107,12 @@ if __name__ == "__main__":
     small_data = data[:int(1e6)]  # First million points contain one event
     base_sd = np.std(data[:200000])
     baseline = np.mean(data)
-    # events = analyze(data, threshold, out_sample_rate)
-    # num_events = len(events)
+    events = analyze(data, threshold, out_sample_rate)
+    num_events = len(events)
     cusum_result = cusum(data, base_sd, out_sample_rate)
-    # frac = [event.local_baseline / baseline for event in events]
+    frac = [event.local_baseline / baseline for event in events]
     # Time between the starts of events?
-    # dt = np.concatenate([[0], np.diff([event.start for event in events]) / out_sample_rate])
+    dt = np.concatenate([[0], np.diff([event.start for event in events]) / out_sample_rate])
 
 
 

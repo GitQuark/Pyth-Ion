@@ -4,13 +4,11 @@ import pandas as pd
 import pyqtgraph as pg
 import pandas.io.parsers
 
-import PythIon.abfheader as abf
+from PythIon.abfheader import read_header
 from typing import List
 from scipy import ndimage
 from scipy import signal
 from scipy import io as spio
-
-from PythIon.CUSUM import cusum
 
 from PythIon.plotguiuniversal import *
 
@@ -81,36 +79,42 @@ def generate_data_pts(data, start, end):
     return data[start:end]
 
 
-def load_log_file(mat_file_name, data_file_name, lp_filter_cutoff, output_sample_rate):
-    chimera_file = np.dtype('<u2')
-    data = np.fromfile(data_file_name, chimera_file)
-    mat = spio.loadmat(mat_file_name)
+# Loads the log file data and outputs a vector of voltages and the sample rate
+def load_log_file(info_file_name, data_file_name, lp_filter_cutoff, output_sample_rate):
+    def data_to_amps(raw_data, adc_bits, adc_vref, closedloop_gain, current_offset):
+        # Computations to turn uint16 data into amps
+        bitmask = (2 ** 16) - (1 + ((2 ** (16 - adc_bits)) - 1))
+        raw_data = -adc_vref + ((2 * adc_vref * (raw_data & bitmask)) / 2 ** 16)
+        raw_data = (raw_data / closedloop_gain + current_offset)
+        data = raw_data[0]  # Retrurns the list to a single level: [[data]] -> [data]
+        return data
 
-    sample_rate = np.float64(mat['ADCSAMPLERATE'])
-    tig_ain = np.int32(mat['SETUP_TIAgain'])
-    pre_adc_gain = np.float64(mat['SETUP_preADCgain'])
-    current_offset = np.float64(mat['SETUP_pAoffset'])
-    adc_vref = np.float64(mat['SETUP_ADCVREF'])
-    adc_bits = np.int32(mat['SETUP_ADCBITS'])
-    closedloop_gain = tig_ain * pre_adc_gain
+    mat = spio.loadmat(info_file_name)
+    # ADC is analog to digital converter
+    # Loading in data about file from matlab data file
+    sample_rate = mat['ADCSAMPLERATE'][0][0]
+    ti_gain = mat['SETUP_TIAgain']
+    pre_adc_gain = mat['SETUP_preADCgain'][0][0]
+    current_offset = mat['SETUP_pAoffset'][0][0]
+    adc_vref = mat['SETUP_ADCVREF'][0][0]
+    adc_bits = mat['SETUP_ADCBITS']
+    closedloop_gain = ti_gain * pre_adc_gain
+    # Info has been loaded
 
+    chimera_file = np.dtype('uint16')  # Was <u2 "Little-endian 2 byte unsigned integer"
+    raw_data = np.fromfile(data_file_name, chimera_file)
+    # Part to handle low sample rate
     if sample_rate < 4000e3:
-        data = data[::round(sample_rate / output_sample_rate)]
+        raw_data = raw_data[::round(sample_rate / output_sample_rate)]
+    data = data_to_amps(raw_data, adc_bits, adc_vref, closedloop_gain, current_offset)
+    # Data has been loaded
 
-    bitmask = (2 ** 16 - 1) - (2 ** (16 - adc_bits) - 1)
-    data = -adc_vref + (2 * adc_vref) * (data & bitmask) / 2 ** 16
-    data = (data / closedloop_gain + current_offset)
-    data = data[0]
-
-    # TODO: Separate loading and filtering
-    # data has now been loaded
-    # now filtering data
-
-    wn = round(lp_filter_cutoff / (sample_rate / 2), 4)
+    # Fow filtering data (NG: Don't know why or what this does)
+    wn = round(lp_filter_cutoff / (sample_rate / 2), 4)  #
     # noinspection PyTupleAssignmentBalance
     b, a = signal.bessel(4, wn, btype='low')
-
     data = signal.filtfilt(b, a, data)
+
     return data, sample_rate
 
 
@@ -186,7 +190,7 @@ def load_abf_file(data_file_name, output_sample_rate, ui, lp_filter_cutoff, p1):
     f = open(data_file_name, "rb")  # reopen the file
     f.seek(6144, os.SEEK_SET)
     data = np.fromfile(f, dtype=np.dtype('<i2'))
-    header = abf.read_header(data_file_name)
+    header = read_header(data_file_name)
     sample_rate = 1e6 / header['protocol']['fADCSequenceInterval']
     telegraph_mode = int(header['listADCInfo'][0]['nTelegraphEnable'])
     if telegraph_mode == 1:
@@ -472,45 +476,6 @@ def update_histograms(sdf, ui, events, w2, w3, w4, w5):
 
 
 BILLION = 10 ** 9  # Hopefully makes reading clearer
-
-
-# Loads the log file data and outputs a vector of voltages and the sample rate
-def load_log_file(info_file_name, data_file_name, lp_filter_cutoff, output_sample_rate):
-    def data_to_amps(raw_data, adc_bits, adc_vref, closedloop_gain, current_offset):
-        # Computations to turn uint16 data into amps
-        bitmask = (2 ** 16) - (1 + ((2 ** (16 - adc_bits)) - 1))
-        raw_data = -adc_vref + ((2 * adc_vref * (raw_data & bitmask)) / 2 ** 16)
-        raw_data = (raw_data / closedloop_gain + current_offset)
-        data = raw_data[0]  # Retrurns the list to a single level: [[data]] -> [data]
-        return data
-
-    mat = spio.loadmat(info_file_name)
-    # ADC is analog to digital converter
-    # Loading in data about file from matlab data file
-    sample_rate = mat['ADCSAMPLERATE'][0][0]
-    ti_gain = mat['SETUP_TIAgain']
-    pre_adc_gain = mat['SETUP_preADCgain'][0][0]
-    current_offset = mat['SETUP_pAoffset'][0][0]
-    adc_vref = mat['SETUP_ADCVREF'][0][0]
-    adc_bits = mat['SETUP_ADCBITS']
-    closedloop_gain = ti_gain * pre_adc_gain
-    # Info has been loaded
-
-    chimera_file = np.dtype('uint16')  # Was <u2 "Little-endian 2 byte unsigned integer"
-    raw_data = np.fromfile(data_file_name, chimera_file)
-    # Part to handle low sample rate
-    if sample_rate < 4000e3:
-        raw_data = raw_data[::round(sample_rate / output_sample_rate)]
-    data = data_to_amps(raw_data, adc_bits, adc_vref, closedloop_gain, current_offset)
-    # Data has been loaded
-
-    # Fow filtering data (NG: Don't know why or what this does)
-    wn = round(lp_filter_cutoff / (sample_rate / 2), 4)  #
-    # noinspection PyTupleAssignmentBalance
-    b, a = signal.bessel(4, wn, btype='low')
-    data = signal.filtfilt(b, a, data)
-
-    return data, sample_rate
 
 
 class Event(object):
