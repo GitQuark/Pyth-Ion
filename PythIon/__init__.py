@@ -7,5 +7,6 @@ Refactored By: Noah Gillespie
 
 __version__ = '0.2.0'
 
-import PythIon.Pythion
-Pythion.start()
+if __name__ == '__main__':
+    import PythIon.Pythion
+    Pythion.start()

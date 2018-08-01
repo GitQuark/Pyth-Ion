@@ -8,7 +8,7 @@ from typing import List
 
 from PythIon.Utility import *
 
-from PythIon.CUSUM import cusum
+from PythIon import CUSUM
 from PythIon.PoreSizer import *
 from PythIon.abfheader import *
 from PythIon.batchinfo import *
@@ -17,9 +17,11 @@ from PythIon.batchinfo import *
 # from PlotGUI import *
 from PythIon.plotguiuniversal import *
 
+from scipy.ndimage.filters import gaussian_filter1d
+from scipy.fftpack import fft
+
 
 class GUIForm(QtWidgets.QMainWindow):
-
     events: List[Event]
 
     def __init__(self, width, height, master=None):
@@ -131,6 +133,10 @@ class GUIForm(QtWidgets.QMainWindow):
         else:
             return
 
+        # zeroed_data = np.array(data) - np.mean(data[np.where(np.array(data) > 0.1e-9)])
+        # step = np.hstack((np.ones(len(data)), -1 * np.ones(len(data))))
+        # box = np.hstack((np.zeros(len(data)), np.ones(500), (np.zeros(len(data)))))
+        # data = np.diff(signal.fftconvolve(zeroed_data, box, mode='valid'))
         t = np.arange(0, len(data)) / output_sample_rate
 
         # TODO: Separate function
@@ -763,6 +769,7 @@ Allows user to select region of data to be removed
 
     def cusum(self):
         ui = self.ui
+        output_sample_rate = self.output_sample_rate
         ui_bp = self.ui.uibp
         if self.data is None:
             return
@@ -771,8 +778,7 @@ Allows user to select region of data to be removed
         dt = 1 / self.output_sample_rate
         cusum_thresh = np.float64(ui_bp.cusumthreshentry.text())
         step_size = np.float64(ui.levelthresholdentry.text())
-        cusum = cusum(self.data, base_sd=self.var, dt=dt, threshhold=cusum_thresh, stepsize=step_size,
-                             minlength=10)
+        cusum = CUSUM.cusum(self.data, base_sd=self.var, stepsize=step_size, output_sample_rate=output_sample_rate)
         np.savetxt(self.mat_file_name + '_Levels.txt', np.abs(cusum['jumps'] * 10 ** 12), delimiter='\t')
 
         self.p1.plot(self.t[2:][:-2], self.data[2:][:-2], pen='b')
@@ -815,7 +821,7 @@ Allows user to select region of data to be removed
         ui_bp = self.bp.uibp
         min_dwell = min([event.duration for event in events])
         min_frac = min(calc_frac(events))
-        min_level_t = float(ui_bp.minleveltbox.text()) * 10**-6
+        min_level_t = float(ui_bp.minleveltbox.text()) * 10 ** -6
         sample_rate = self.sample_rate
         lp_filter_cutoff = self.lp_filter_cutoff
         cusum_step = self.cusum_step
@@ -929,8 +935,6 @@ Allows user to select region of data to be removed
             except TypeError as e:
                 print(e)
 
-
-
             with pg.ProgressDialog("Analyzing...", 0, len(durations)) as dlg:
                 for i, event in enumerate(events):
                     # t_offset = (event_time[-1] + event_buffer) / output_sample_rate
@@ -946,20 +950,14 @@ Allows user to select region of data to be removed
                         eventdata = data[int(event.start - event_buffer):int(event.end + event_buffer)]
                         event_time = np.arange(0, len(eventdata)) + event_buffer + event_time[-1]
                         # self.p1.plot(eventtime/self.outputsamplerate, eventdata,pen='b')
-                        cusum = cusum(eventdata, np.std(eventdata[0:event_buffer]),
-                                             1 / output_sample_rate, threshhold=cusum_thresh,
-                                             stepsize=cusum_step,
-                                             minlength=min_level_t * output_sample_rate,
-                                             max_states=max_states)
+                        cusum = CUSUM.cusum(eventdata, np.std(eventdata[0:event_buffer]),
+                                            output_sample_rate, stepsize=cusum_step)
 
                         while len(cusum['CurrentLevels']) < 3:
                             cusum_thresh = cusum_thresh * .9
                             cusum_step = cusum_step * .9
-                            cusum = cusum(eventdata, base_sd=np.std(eventdata[0:event_buffer]),
-                                                 dt=1 / output_sample_rate, threshhold=cusum_thresh,
-                                                 stepsize=cusum_step,
-                                                 minlength=min_level_t * output_sample_rate,
-                                                 max_states=max_states)
+                            cusum = CUSUM.cusum(eventdata, np.std(eventdata[0:event_buffer]),
+                                                output_sample_rate, stepsize=cusum_step)
                             print('Not Sensitive Enough')
 
                         frac[i] = (np.max(cusum['CurrentLevels']) - np.min(cusum['CurrentLevels'])) / np.max(
