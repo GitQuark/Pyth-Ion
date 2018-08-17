@@ -6,11 +6,13 @@ import pandas.io.parsers
 
 from PythIon.abfheader import read_header
 from typing import List
+from inspect import getmembers
 from scipy import ndimage
 from scipy import signal
 from scipy import io as spio
 
-from PythIon.plotguiuniversal import *
+# from PythIon.plotguiuniversal import *
+from PythIon.Widgets.PlotGUI import *
 
 
 def bound(num, lower, upper):
@@ -113,6 +115,7 @@ def load_log_file(info_file_name, data_file_name, lp_filter_cutoff, output_sampl
     wn = round(lp_filter_cutoff / (sample_rate / 2), 4)  #
     # noinspection PyTupleAssignmentBalance
     b, a = signal.bessel(4, wn, btype='low')
+    # FIXME: scipy gives warning for this function due to internal implementation
     data = signal.filtfilt(b, a, data)
 
     return data, sample_rate
@@ -237,11 +240,11 @@ def load_abf_file(data_file_name, output_sample_rate, ui, lp_filter_cutoff, p1):
 
 
 def update_p1(instance, t, data, baseline, threshold, file_type='.log'):
-    instance.p1.clear()  # This might be unnecessary
-    instance.p1.plot(t, data, pen='b')
+    instance.signal_plot.clear()  # This might be unnecessary
+    instance.signal_plot.plot(t, data, pen='b')
     if file_type != '.abf':
-        instance.p1.addLine(y=baseline, pen='g')
-        instance.p1.addLine(y=threshold, pen='r')
+        instance.signal_plot.addLine(y=baseline, pen='g')
+        instance.signal_plot.addLine(y=threshold, pen='r')
 
 
 def plot_on_load(instance, data, baseline, threshold, file_type, t, p1, p3):
@@ -270,10 +273,10 @@ def calc_frac(events):
 
 
 # Function to hide ui setup boilerplate
-def setup_ui(form):
+def setupUi(form):
     # TODO: Maybe move the top two lines out of function
     ui = Ui_PythIon()
-    ui.setup_ui(form)
+    ui.setupUi(form)
 
     # Linking buttons to main functions
     ui.loadbutton.clicked.connect(form.get_file)
@@ -309,23 +312,23 @@ def setup_ui(form):
     return ui
 
 
-def setup_p1(ui):
-    p1 = ui.signalplot.addPlot()
-    p1.setLabel('bottom', text='Time', units='s')
-    p1.setLabel('left', text='Current', units='A')
-    # p1.enableAutoRange(axis='x')
-    p1.setClipToView(clip=True)  # THIS IS THE MOST IMPORTANT LINE!!!!
-    p1.setDownsampling(ds=True, auto=True, mode='peak')
-    return p1
+def setup_signal_plot(ui):
+    signal_plot = ui.signalplot.addPlot()
+    signal_plot.setLabel('bottom', text='Time', units='s')
+    signal_plot.setLabel('left', text='Current', units='A')
+    # signal_plot.enableAutoRange(axis='x')
+    signal_plot.setClipToView(clip=True)  # THIS IS THE MOST IMPORTANT LINE!!!!
+    signal_plot.setDownsampling(ds=True, auto=True, mode='peak')
+    return signal_plot
 
 
-def setup_p2(clicked):
-    p2 = pg.ScatterPlotItem()
-    p2.sigClicked.connect(clicked)
-    return p2
+def setup_event_plot(clicked):
+    event_plot = pg.ScatterPlotItem()
+    event_plot.sigClicked.connect(clicked)
+    return event_plot
 
 
-def setup_w1(instance, p2):
+def setup_scatter_plot(instance, p2):
     w1 = instance.ui.scatterplot.addPlot()
     w1.addItem(p2)
     w1.setLabel('bottom', text='Time', units=u'μs')
@@ -345,22 +348,22 @@ def setup_cb(ui):
 
 
 def setup_plots(instance):  # TODO: revisit name
-    w2 = instance.ui.frachistplot.addPlot()
-    w2.setLabel('bottom', text='Fractional Current Blockage')
-    w2.setLabel('left', text='Counts')
+    frac_hist = instance.ui.frachistplot.addPlot()
+    frac_hist.setLabel('bottom', text='Fractional Current Blockage')
+    frac_hist.setLabel('left', text='Counts')
 
-    w3 = instance.ui.delihistplot.addPlot()
-    w3.setLabel('bottom', text='ΔI', units='A')
-    w3.setLabel('left', text='Counts')
+    delta_hist = instance.ui.delihistplot.addPlot()
+    delta_hist.setLabel('bottom', text='ΔI', units='A')
+    delta_hist.setLabel('left', text='Counts')
 
-    w4 = instance.ui.dwellhistplot.addPlot()
-    w4.setLabel('bottom', text='Log Dwell Time', units='μs')
-    w4.setLabel('left', text='Counts')
+    duration_hist = instance.ui.dwellhistplot.addPlot()
+    duration_hist.setLabel('bottom', text='Log Dwell Time', units='μs')
+    duration_hist.setLabel('left', text='Counts')
 
-    w5 = instance.ui.dthistplot.addPlot()
-    w5.setLabel('bottom', text='dt', units='s')
-    w5.setLabel('left', text='Counts')
-    return w2, w3, w4, w5
+    dt_hist = instance.ui.dthistplot.addPlot()
+    dt_hist.setLabel('bottom', text='dt', units='s')
+    dt_hist.setLabel('left', text='Counts')
+    return frac_hist, delta_hist, duration_hist, dt_hist
 
 
 def load_logo():
@@ -371,11 +374,13 @@ def load_logo():
     return logo
 
 
-def setup_p3(ui, logo):
+def setup_voltage_hist(ui, logo):
     p3 = ui.eventplot.addPlot()
     p3.hideAxis('bottom')
     p3.hideAxis('left')
     p3.addItem(logo)
+    p3.setMouseEnabled(x=True, y=False)
+    # Maybe make log scaled on y-axis
     p3.setAspectLocked(True)
     return p3
 
@@ -475,26 +480,90 @@ def update_histograms(sdf, ui, events, w2, w3, w4, w5):
         w5.addItem(hist)
 
 
+def event_info_update(data, info_file_name, t, cb, events, ui, sdf, time_plot, durations_plot, w1, w2, w3, w4, w5):
+    frac = calc_frac(events)
+    dt = calc_dt(events)
+    num_events = len(events)
+    # Plotting starts after this
+    durations = [event.duration for event in events]
+    deltas = [event.delta for event in events]
+    start_points = [event.start for event in events]
+    end_points = [event.end for event in events]
+    noise = [event.noise for event in events]
+
+    # skips plotting first and last two points, there was a weird spike issue
+    #        self.time_plot.plot(self.t[::10][2:][:-2],data[::10][2:][:-2],pen='b')
+    time_plot.clear()
+    time_plot.plot(t[2:][:-2], data[2:][:-2], pen='b')
+    if num_events >= 2:
+        # TODO: Figure out why a single point can't be plotted
+        # Plotting start and end points
+        time_plot.plot(t[start_points], data[start_points], pen=None, symbol='o', symbolBrush='g',
+                       symbolSize=10)
+        time_plot.plot(t[end_points], data[end_points], pen=None, symbol='o', symbolBrush='r', symbolSize=10)
+    time_plot.autoRange()
+
+    # Updating satistics text
+    mean_delta = round(np.mean(deltas) * BILLION, 2)
+    median_duration = round(float(np.median(durations)), 2)
+    event_rate = round(num_events / t[-1], 1)
+    ui.eventcounterlabel.setText('Events:' + str(num_events))
+    ui.meandelilabel.setText('Deli:' + str(mean_delta) + ' nA')
+    ui.meandwelllabel.setText('Dwell:' + str(median_duration) + u' μs')
+    ui.meandtlabel.setText('Rate:' + str(event_rate) + ' events/s')
+
+    # Dataframe containing all information
+    sdf = sdf[sdf.fn != info_file_name]
+    fn = pd.Series([info_file_name] * num_events)
+    color = pd.Series([pg.colorTuple(cb.color())] * num_events)
+
+    sdf = sdf.append(pd.DataFrame({'fn': fn, 'color': color, 'deli': deltas,
+                                   'frac': frac, 'durations': durations,
+                                   'dt': dt, 'stdev': noise, 'startpoints': start_points,
+                                   'endpoints': end_points}), ignore_index=True)
+
+    # I think below should be trying to show only the points associated with current file
+    # But I'm not really sure
+    # try:
+    #     durations_plot.data = durations_plot.data[np.where(np.array(sdf.fn) != info_file_name)]
+    # except Exception as e:
+    #     print(e)
+    #     raise IndexError
+    durations_plot.addPoints(x=np.log10(durations), y=frac, symbol='o', brush=(cb.color()), pen=None, size=10)
+    # w1 is window 1???
+    w1.addItem(durations_plot)
+    w1.setLogMode(x=True, y=False)
+    w1.autoRange()
+    w1.setRange(yRange=[0, 1])
+
+    ui.scatterplot.update()
+
+    update_histograms(sdf, ui, events, w2, w3, w4, w5)
+    return sdf
+
+
 BILLION = 10 ** 9  # Hopefully makes reading clearer
 
 
 class Event(object):
     subevents: List
 
-    def __init__(self, data, start, end, baseline, output_sample_rate, subevents=[].copy()):
+    def __init__(self, data, start, end, baseline, output_sample_rate, subevents=None):
         # Start and end are the indicies in the data
+        if subevents is None:
+            subevents = []
         self.baseline = baseline
         self.output_sample_rate = output_sample_rate
 
-        self.local_baseline = np.mean(data[start:end + 1])  # Could be made more precise, but good enough
+        self.local_baseline = np.mean(data[start:end])  # Could be made more precise, but good enough
         # True can false are converted to 1 and 0, np.argmax returns index of first ture value
         true_start = start - np.argmax(data[start::-1] > self.local_baseline) + 1
-        true_end = end - np.argmax(data[end::-1] < self.local_baseline)
+        true_end = end - np.argmax(data[end - 1::-1] < self.local_baseline)
         self.start = true_start
         self.end = true_end
 
         self.data = data[self.start:self.end + 1]
-        # TODO: Fix slight error in calculations; To much past the tails is included in fall and rise
+        # TODO: Fix slight error in calculations; Too much past the tails is included in fall and rise
         # Rise_end seems to have consistent issues
         self.noise = np.std(self.data)
         self.duration = (self.end - self.start) / output_sample_rate  # In seconds
@@ -512,3 +581,31 @@ class Event(object):
 
     def __repr__(self):
         return str((self.start/self.output_sample_rate, self.end/self.output_sample_rate))
+
+
+class VoltageData(object):
+    events: List[Event]
+
+    def __init__(self, data, output_sample_rate, data_file_name=None, info_file_name=None, file_type=None,
+                 lp_filter_cutoff=None, sample_rate=None, max_states=None, baseline=None):
+        self.baseline = baseline
+        self.max_states = max_states
+        self.sample_rate = sample_rate
+        self.lp_filter_cutoff = lp_filter_cutoff
+        self.file_type = file_type
+        self.info_file_name = info_file_name
+        self.data = data
+        self.data_file_name = data_file_name
+        self.output_sample_Rate = output_sample_rate
+        self.events = []
+
+    def delete_event(self):
+        pass
+
+    def get_event_prop(self, prop_name):
+        if not self.events:
+            return
+        if prop_name not in self.events[0].__dict__.keys():
+            return
+
+        return [event.__getattribute__(prop_name) for event in self.events]

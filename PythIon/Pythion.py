@@ -5,20 +5,18 @@ from scipy import io as spio
 from scipy import ndimage
 from scipy import signal
 from typing import List
+import peakutils
 
 from PythIon.Utility import *
 
-from PythIon import CUSUM
+from PythIon import CUSUM, EdgeDetect
 from PythIon.PoreSizer import *
 from PythIon.abfheader import *
 from PythIon.batchinfo import *
 # plotguiuniversal works well for mac and laptops,
 # for larger screens try PlotGUI
-# from PlotGUI import *
-from PythIon.plotguiuniversal import *
-
-from scipy.ndimage.filters import gaussian_filter1d
-from scipy.fftpack import fft
+from PythIon.Widgets.PlotGUI import *
+# from PythIon.plotguiuniversal import *
 
 
 class GUIForm(QtWidgets.QMainWindow):
@@ -29,14 +27,14 @@ class GUIForm(QtWidgets.QMainWindow):
         QtWidgets.QMainWindow.__init__(self, master)
         pg.setConfigOptions(antialias=True)
 
-        self.ui = setup_ui(self)
-        self.p1 = setup_p1(self.ui)
-        self.p2 = setup_p2(self.clicked)
-        self.w1 = setup_w1(self, self.p2)
+        self.ui = setupUi(self)
+        self.signal_plot = setup_signal_plot(self.ui)
+        self.event_plot = setup_event_plot(self.clicked)
+        self.scatter_plot = setup_scatter_plot(self, self.event_plot)
         self.cb = setup_cb(self.ui)
         self.w2, self.w3, self.w4, self.w5 = setup_plots(self)
         self.logo = load_logo()
-        self.p3 = setup_p3(self.ui, self.logo)
+        self.voltage_hist = setup_voltage_hist(self.ui, self.logo)
 
         # Initializing various variables used for analysis
         self.data_file_name = None
@@ -72,15 +70,15 @@ class GUIForm(QtWidgets.QMainWindow):
         self.events = None
 
         self.batch_info = pd.DataFrame(columns=list(['cutstart', 'cutend']))
-        self.total_plot_points = len(self.p2.data)
+        self.total_plot_points = len(self.event_plot.data)
         self.threshold = np.float64(self.ui.thresholdentry.text()) * 10 ** -9
 
     def load(self, load_and_plot=True):
         sdf = self.sdf
         ui = self.ui
-        p3 = self.p3
-        p2 = self.p2
-        p1 = self.p1
+        p3 = self.voltage_hist
+        p2 = self.event_plot
+        p1 = self.signal_plot
         baseline = self.baseline
         data_file_name = self.data_file_name
         var = self.var
@@ -133,13 +131,9 @@ class GUIForm(QtWidgets.QMainWindow):
         else:
             return
 
-        # zeroed_data = np.array(data) - np.mean(data[np.where(np.array(data) > 0.1e-9)])
-        # step = np.hstack((np.ones(len(data)), -1 * np.ones(len(data))))
-        # box = np.hstack((np.zeros(len(data)), np.ones(500), (np.zeros(len(data)))))
-        # data = np.diff(signal.fftconvolve(zeroed_data, box, mode='valid'))
+        data = data[20:-20]
+        # data = EdgeDetect.canny_1d(data, 250, 3)
         t = np.arange(0, len(data)) / output_sample_rate
-
-        # TODO: Separate function
 
         if not has_baseline_been_set:
             baseline = np.median(data)
@@ -189,100 +183,29 @@ class GUIForm(QtWidgets.QMainWindow):
             print(e)
 
     def analyze(self):
-        # start_points, end_points, mins = None, None, None  # unused
         data = self.data
         if data is None:
             return
-        w1 = self.w1
-        w2 = self.w2
-        w3 = self.w3
-        w4 = self.w4
-        w5 = self.w5
         output_sample_rate = self.output_sample_rate
-        t = self.t
 
-        sdf = self.sdf
-        time_plot = self.p1
-        durations_plot = self.p2
+        time_plot = self.signal_plot
+        durations_plot = self.event_plot
         info_file_name = self.mat_file_name
 
-        cb = self.cb
-
-        analyze_type = 'coarse'
-        w2.clear()
-        w3.clear()
-        w4.clear()
-        w5.clear()
+        self.analyze_type = 'coarse'
+        self.clear_w_plots()
         ui = self.ui
-        threshold = np.float64(ui.thresholdentry.text()) * 10 ** -9
-        # find all points below threshold
+        threshold = np.float64(ui.thresholdentry.text()) * 10 ** -9  # Level below which voltage drop is significant
 
         # Setup happens above
         events = analyze(data, threshold, output_sample_rate)
-        frac = calc_frac(events)
-        dt = calc_dt(events)
-        num_events = len(events)
-        # Plotting starts after this
-        durations = [event.duration for event in events]
-        deltas = [event.delta for event in events]
-        start_points = [event.start for event in events]
-        end_points = [event.end for event in events]
-        noise = [event.noise for event in events]
 
-        # skips plotting first and last two points, there was a weird spike issue
-        #        self.time_plot.plot(self.t[::10][2:][:-2],data[::10][2:][:-2],pen='b')
-        time_plot.clear()
-        time_plot.plot(t[2:][:-2], data[2:][:-2], pen='b')
-        if num_events >= 2:
-            # TODO: Figure out why a single point can't be plotted
-            # Plotting start and end points
-            time_plot.plot(t[start_points], data[start_points], pen=None, symbol='o', symbolBrush='g', symbolSize=10)
-            time_plot.plot(t[end_points], data[end_points], pen=None, symbol='o', symbolBrush='r', symbolSize=10)
-        time_plot.autoRange()
+        new_sdf = event_info_update(data, info_file_name, self.t, self.cb, events, ui, self.sdf, time_plot,
+                                    durations_plot, self.scatter_plot, self.w2, self.w3, self.w4, self.w5)
 
-        # Updating satistics text
-        mean_delta = round(np.mean(deltas) * BILLION, 2)
-        median_duration = round(float(np.median(durations)), 2)
-        event_rate = round(num_events / t[-1], 1)
-        ui.eventcounterlabel.setText('Events:' + str(num_events))
-        ui.meandelilabel.setText('Deli:' + str(mean_delta) + ' nA')
-        ui.meandwelllabel.setText('Dwell:' + str(median_duration) + u' μs')
-        ui.meandtlabel.setText('Rate:' + str(event_rate) + ' events/s')
-
-        # Dataframe containing all information
-        sdf = sdf[sdf.fn != info_file_name]
-        fn = pd.Series([info_file_name] * num_events)
-        color = pd.Series([pg.colorTuple(cb.color())] * num_events)
-
-        sdf = sdf.append(pd.DataFrame({'fn': fn, 'color': color, 'deli': deltas,
-                                       'frac': frac, 'durations': durations,
-                                       'dt': dt, 'stdev': noise, 'startpoints': start_points,
-                                       'endpoints': end_points}), ignore_index=True)
-
-        # I think below should be trying to show only the points associated with current file
-        # But I'm not really sure
-        # try:
-        #     durations_plot.data = durations_plot.data[np.where(np.array(sdf.fn) != info_file_name)]
-        # except Exception as e:
-        #     print(e)
-        #     raise IndexError
-        durations_plot.addPoints(x=np.log10(durations), y=frac, symbol='o', brush=(cb.color()), pen=None, size=10)
-        # w1 is window 1???
-        w1.addItem(durations_plot)
-        w1.setLogMode(x=True, y=False)
-        w1.autoRange()
-        w1.setRange(yRange=[0, 1])
-
-        ui.scatterplot.update()
-
-        update_histograms(sdf, ui, events, w2, w3, w4, w5)
-
-        # self.save()
-        # self.save_target()
         # Reassigning class variables
         self.events = events
-        self.analyze_type = analyze_type
-        self.sdf = sdf
+        self.sdf = new_sdf
 
     def save(self):
         info_file_name = self.mat_file_name
@@ -298,7 +221,9 @@ class GUIForm(QtWidgets.QMainWindow):
 
     # Called by Go button
     # TODO: Continue cleanump and input sanitizing
-    def inspect_event(self, clicked=[].copy()):
+    def inspect_event(self, clicked=None):
+        if clicked is None:
+            clicked = []
         events = self.events
         if not events:
             return
@@ -307,8 +232,8 @@ class GUIForm(QtWidgets.QMainWindow):
         sdf = self.sdf
         ui = self.ui
         data = self.data
-        p2 = self.p2
-        p3 = self.p3
+        p2 = self.event_plot
+        p3 = self.voltage_hist
         t = self.t
         mat_file_name = self.mat_file_name
 
@@ -443,8 +368,8 @@ Allows user to select region of data to be removed
         batch_info = self.batch_info
         # first check to see if cutting
         cut_region = self.cut_region
-        p1 = self.p1
-        p3 = self.p3
+        p1 = self.signal_plot
+        p3 = self.voltage_hist
         has_baseline_been_set = self.has_baseline_been_set
 
         if cut_region.isVisible():
@@ -510,7 +435,7 @@ Allows user to select region of data to be removed
         Toggle that allows a region of the graph to be selected to used as the baseline.
         """
         base_region = self.base_region
-        p1 = self.p1
+        p1 = self.signal_plot
         ui = self.ui
         threshold = self.threshold
         data = self.data
@@ -545,19 +470,12 @@ Allows user to select region of data to be removed
         self.base_region = base_region
 
     def clear_scatter(self):
-        p2 = self.p2
+        p2 = self.event_plot
         ui = self.ui
-        w2 = self.w2
-        w3 = self.w3
-        w4 = self.w4
-        w5 = self.w5
         p2.setData(x=[], y=[])
         # last_event = []
         ui.scatterplot.update()
-        w2.clear()
-        w3.clear()
-        w4.clear()
-        w5.clear()
+        self.clear_w_plots()
         self.sdf = pd.DataFrame(columns=['fn', 'color', 'deli', 'frac',
                                          'dwell', 'dt', 'startpoints', 'endpoints'])
 
@@ -570,7 +488,7 @@ Allows user to select region of data to be removed
         frac = calc_frac(events)
         dt = calc_dt(events)
         noise = [event.noise for event in events]
-        p2 = self.p2
+        p2 = self.event_plot
         ui = self.ui
         sdf = self.sdf
         analyze_type = self.analyze_type
@@ -587,10 +505,7 @@ Allows user to select region of data to be removed
         sdf = sdf.drop(first_index + event_number).reset_index(drop=True)
         self.inspect_event()
 
-        self.w2.clear()
-        self.w3.clear()
-        self.w4.clear()
-        self.w5.clear()
+        self.clear_w_plots()
         update_histograms(sdf, ui, events, self.w2, self.w3, self.w4, self.w5)
 
         if analyze_type == 'coarse':
@@ -607,7 +522,7 @@ Allows user to select region of data to be removed
         data = self.data
         if data is None:
             return
-        p1 = self.p1
+        p1 = self.signal_plot
         baseline = -self.baseline
         var = self.var
         threshold = -self.threshold
@@ -625,6 +540,12 @@ Allows user to select region of data to be removed
         self.var = var
         self.baseline = baseline
         self.threshold = threshold
+
+    def clear_w_plots(self):
+        self.w2.clear()
+        self.w3.clear()
+        self.w4.clear()
+        self.w5.clear()
 
     def clicked(self, points, sdf, p2, mat_file_name):
         for idx, pt in enumerate(p2.points()):
@@ -710,7 +631,7 @@ Allows user to select region of data to be removed
         dt = self.dt
         start_points = self.start_points
         end_points = self.end_points
-        p1 = self.p1
+        p1 = self.signal_plot
         event_buffer = np.int(ui.eventbufferentry.text())
         num_events = len(dt)
         output_sample_rate = self.output_sample_rate
@@ -770,48 +691,65 @@ Allows user to select region of data to be removed
     def cusum(self):
         ui = self.ui
         output_sample_rate = self.output_sample_rate
-        ui_bp = self.ui.uibp
+        # ui_bp = self.ui.uibp
         if self.data is None:
             return
-        self.p1.clear()
-        self.p1.setDownsampling(ds=False)
-        dt = 1 / self.output_sample_rate
-        cusum_thresh = np.float64(ui_bp.cusumthreshentry.text())
-        step_size = np.float64(ui.levelthresholdentry.text())
-        cusum = CUSUM.cusum(self.data, base_sd=self.var, stepsize=step_size, output_sample_rate=output_sample_rate)
-        np.savetxt(self.mat_file_name + '_Levels.txt', np.abs(cusum['jumps'] * 10 ** 12), delimiter='\t')
+        self.signal_plot.clear()
+        # self.signal_plot.setDownsampling(ds=False)
+        # dt = 1 / self.output_sample_rate
+        # cusum_thresh = np.float64(ui_bp.cusumthreshentry.text())
+        # step_size = np.float64(ui.levelthresholdentry.text())
+        fit_line, _, _, level_table = CUSUM.correct_cusum(self.data, 2e-10, 2.5e-11)
 
-        self.p1.plot(self.t[2:][:-2], self.data[2:][:-2], pen='b')
+        file_name = "TempNameEventTable"
+        extention = ".csv"
+        event_indicies = level_table['Voltage Level'] < level_table['Voltage Level'][0] - 3 * np.std(self.data)
+        event_table = level_table[event_indicies]
+        if not event_table.empty:
+            compute_dict = {
+                'Start Time': event_table['Start Index'] / output_sample_rate,
+                'End Time': event_table['End Index'] / output_sample_rate,
+                'Duration (s)': event_table['Duration'] / output_sample_rate,
+            }
+            event_table = event_table.assign(**compute_dict)
+            event_table = event_table.loc[:, ('Start Index', 'End Index', 'Duration',
+                                       'Start Time', 'End Time', 'Duration (s)',
+                                       'Voltage Level')]
+            event_table.to_csv(file_name + extention)
 
+        # np.savetxt(self.mat_file_name + '_Levels.txt', np.abs(cusum['jumps'] * 10 ** 12), delimiter='\t')
+
+        self.signal_plot.plot(self.t[2:][:-2], self.data[2:][:-2], pen='b')
+        self.signal_plot.plot(self.t[2:][:-3], fit_line[2:][:-2], pen='r')  # len(fit_line) = len(self.data) - 1
         self.w3.clear()
-        amp = np.abs(cusum['jumps'] * 10 ** 12)
-        ampy, ampx = np.histogram(amp, bins=np.linspace(float(ui.delirange0.text()),
-                                                        float(ui.delirange1.text()),
-                                                        int(ui.delibins.text())))
-        hist = pg.BarGraphItem(height=ampy, x0=ampx[:-1], x1=ampx[1:], brush='b')
-        self.w3.addItem(hist)
+        # amp = np.abs(cusum['jumps'] * 10 ** 12)
+        # ampy, ampx = np.histogram(amp, bins=np.linspace(float(ui.delirange0.text()),
+        #                                                 float(ui.delirange1.text()),
+        #                                                 int(ui.delibins.text())))
+        # hist = pg.BarGraphItem(height=ampy, x0=ampx[:-1], x1=ampx[1:], brush='b')
+        # self.w3.addItem(hist)
         # self.w3.autoRange()
-        self.w3.setRange(xRange=[np.min(ampx), np.max(ampx)])
+        # self.w3.setRange(xRange=[np.min(ampx), np.max(ampx)])
 
         cusum_lines = np.array([]).reshape(0, 2)
-        for i, level in enumerate(cusum.get('CurrentLevels')):
-            y = 2 * [level]
-            x = cusum.get('EventDelay')[i:i + 2]
-            self.p1.plot(y=y, x=x, pen='r')
-            cusum_lines = np.concatenate((cusum_lines, np.array(list(zip(x, y)))))
-            try:
-                y = cusum.get('CurrentLevels')[i:i + 2]
-                x = cusum.get('EventDelay')[i:i + 2]  # 2 * [cusum.get('EventDelay')[i + 1]]
-                self.p1.plot(y=y, x=x, pen='r')
-                cusum_lines = np.concatenate((cusum_lines, np.array(list(zip(x, y)))))
-            except Exception as e:
-                print(e)
-                raise Exception
+        # for i, level in enumerate(cusum.get('CurrentLevels')):
+        #     y = 2 * [level]
+        #     x = cusum.get('EventDelay')[i:i + 2]
+        #     self.signal_plot.plot(y=y, x=x, pen='r')
+        #     cusum_lines = np.concatenate((cusum_lines, np.array(list(zip(x, y)))))
+        #     try:
+        #         y = cusum.get('CurrentLevels')[i:i + 2]
+        #         x = cusum.get('EventDelay')[i:i + 2]  # 2 * [cusum.get('EventDelay')[i + 1]]
+        #         self.signal_plot.plot(y=y, x=x, pen='r')
+        #         cusum_lines = np.concatenate((cusum_lines, np.array(list(zip(x, y)))))
+        #     except Exception as e:
+        #         print(e)
+        #         raise Exception
 
         cusum_lines.astype('d').tofile(self.mat_file_name + '_cusum.bin')
         self.save_trace()
 
-        print("Cusum Params" + str(cusum[self.threshold], cusum['stepsize']))
+        # print("Cusum Params" + str(cusum[self.threshold], cusum['stepsize']))
 
     def save_target(self):
         self.batch_info = save_batch_info(self.events, self.batch_info, self.mat_file_name)
@@ -822,12 +760,7 @@ Allows user to select region of data to be removed
         min_dwell = min([event.duration for event in events])
         min_frac = min(calc_frac(events))
         min_level_t = float(ui_bp.minleveltbox.text()) * 10 ** -6
-        sample_rate = self.sample_rate
-        lp_filter_cutoff = self.lp_filter_cutoff
-        cusum_step = self.cusum_step
-        cusum_thresh = self.cusum_thresh
-        max_states = self.max_states
-        p1 = self.p1
+        p1 = self.signal_plot
         p1.clear()
         # self.batch_processor = BatchProcessor()
         # self.batch_processor.show()
@@ -835,11 +768,11 @@ Allows user to select region of data to be removed
             ui_bp.mindwellbox.setText(str(min_dwell))
             ui_bp.minfracbox.setText(str(min_frac))
             ui_bp.minleveltbox.setText(str(min_level_t * 10 ** 6))
-            ui_bp.sampratebox.setText(str(sample_rate))
-            ui_bp.LPfilterbox.setText(str(lp_filter_cutoff / 1000))
-            ui_bp.cusumstepentry.setText(str(cusum_step))
-            ui_bp.cusumthreshentry.setText(str(cusum_thresh))
-            ui_bp.maxLevelsBox.setText(str(max_states))
+            ui_bp.sampratebox.setText(str(self.sample_rate))
+            ui_bp.LPfilterbox.setText(str(self.lp_filter_cutoff / 1000))
+            ui_bp.cusumstepentry.setText(str(self.cusum_step))
+            ui_bp.cusumthreshentry.setText(str(self.cusum_thresh))
+            ui_bp.maxLevelsBox.setText(str(self.max_states))
         except ValueError as e:
             print(e)
         ui_bp.okbutton.clicked.connect(self.batch_process)
@@ -861,9 +794,9 @@ Allows user to select region of data to be removed
         output_sample_rate = self.output_sample_rate
         info_file_name = self.mat_file_name
         sdf = self.sdf
-        p1 = self.p1
-        p2 = self.p2
-        w1 = self.w1
+        p1 = self.signal_plot
+        p2 = self.event_plot
+        w1 = self.scatter_plot
         w2 = self.w2
         w3 = self.w3
         w4 = self.w4

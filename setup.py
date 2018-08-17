@@ -9,6 +9,7 @@ setup(
     author='Robert Henley',
     author_email='roberthenley89@gmail.com',
     packages=['PythIon'],
-    description='Nanopore Data Analysis package.', requires=['pandas', 'PyQt5', 'numpy', 'pyqtgraph', 'scipy']
+    description='Nanopore Data Analysis package.',
+    requires=['pandas', 'PyQt5', 'numpy', 'pyqtgraph', 'scipy']
     
 )

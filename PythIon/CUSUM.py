@@ -1,10 +1,15 @@
 import math
-from typing import List, Tuple
+from typing import List, Tuple, Iterable, Optional
+
+from numpy.core.multiarray import ndarray
+
 from PythIon.Utility import load_log_file, Event, analyze
 
 from scipy import signal
 from scipy import io as spio
 import numpy as np
+from numpy import array
+import pandas as pd
 
 
 # Recursive function that will detect events and output a nested data structure
@@ -21,7 +26,7 @@ def cusum(data, base_sd, output_sample_rate, baseline=None,
     :param level:
     :param data: Voltage data in a list
     :param base_sd: standard deviation of selected portion of
-    :param stepsize: Will only look at one point ever step size; saves compute time
+    :param stepsize: Will only look at one point ever step size  saves compute time
     :param deviation_size: Size of deviation to detect in standard deviations
     :param anchor: Index of last detected deviation
     :return: Returns a nested list of events. Format TBD
@@ -55,7 +60,7 @@ def cusum(data, base_sd, output_sample_rate, baseline=None,
     running_variance = base_sd ** 2
     running_sd = base_sd
     n = anchor + 1  # Index containing current location in data
-    cum_sum = 0  # Cummulative sum of all deviations; equivalent to CUSUM col on bottom of NIST page
+    cum_sum = 0  # Cummulative sum of all deviations  equivalent to CUSUM col on bottom of NIST page
     # Implmented from wikipedia and NIST page
     while n < len(data) - 1:
         pt = data[n]
@@ -95,8 +100,97 @@ def cusum(data, base_sd, output_sample_rate, baseline=None,
         return Event(data, anchor, n, baseline, output_sample_rate, events)
 
 
+def correct_cusum(x, delta, h):
+    """
+ (Detection of abrupt changes in the mean ; optimal for Gaussian signals)
+    :param x: signal samples
+    :param delta: most likely jump to be detected
+    :param h: threshold for the detection test
+    :return: mc   : piecewise constant segmented signal
+             kd   : detection times (in samples)
+             krmv : estimated change times (in samples)
+    """
+    # Algo initialization
+    detection_number = 0  # detection number
+    kd = []  # detection time( in samples)
+    krmv = []  # estimated change time( in samples)
+    k0 = 0  # initial sample
+    k = 0  # current sample
+    mean = [x[k0]] * len(x)  # mean value estimation
+    variance = [0] * len(x)  # variance estimation
+    # (negative decision, positive decision)
+    initial_array = [0, 0]
+    log_liklihoods = [initial_array] * len(x)  # instantaneous log - likelihood ratio
+    cumulative_sums = [initial_array] * len(x)  # cumulated sum for positive jumps
+    decision_values = [initial_array] * len(x)  # decision function for positive jumps
+
+    # Global Loop
+    while k < len(x) - 1:
+        # current sample
+        k += 1
+        # mean and variance estimation(from initial to current sample)
+        mean[k] = mean[k - 1] + (x[k] - mean[k - 1]) / (k - k0 + 1)
+        variance[k] = variance[k - 1] + (x[k] - mean[k - 1]) * (x[k] - mean[k])
+        # instantaneous log - likelihood ratios
+        negative_liklihood = -delta / variance[k] * (x[k] - mean[k] + delta / 2)
+        positive_liklihood = delta / variance[k] * (x[k] - mean[k] - delta / 2)
+        log_liklihoods[k] = [negative_liklihood, positive_liklihood]
+        # cumulated sums
+        cumulative_sums[k] = [cumulative_sums[k - 1][0] + log_liklihoods[k][0],
+                              cumulative_sums[k - 1][1] + log_liklihoods[k][1]]
+        # decision functions
+        decision_values[k] = [max(decision_values[k - 1][0] + log_liklihoods[k][0], 0),
+                              max(decision_values[k - 1][1] + log_liklihoods[k][1], 0)]
+        if decision_values[k][0] > h or decision_values[k][1] > h:
+            # detection number and detection time update
+            kd.append(k)
+            # change time estimation
+            neg_cumulative_sums = [cum_sum[0] for cum_sum in cumulative_sums[k0:]]
+            pos_cumulative_sums = [cum_sum[1] for cum_sum in cumulative_sums[k0:]]
+            kmin = np.argmin(neg_cumulative_sums)
+            krmv.append(kmin + k0 - 1)
+            if decision_values[k][1] > h:
+                kmin = np.argmin(pos_cumulative_sums)
+                krmv[detection_number] = kmin + k0 - 1
+            detection_number = detection_number + 1
+
+            # algorithm reinitialization
+            k0 = k
+            mean[k0] = x[k0]
+            variance[k0] = 0
+            log_liklihoods[k0] = initial_array
+            cumulative_sums[k0] = initial_array
+            decision_values[k0] = initial_array
+        # waitbar(k / length(x), w)
+
+    data_list = []
+    if detection_number == 0:
+        mean_voltage = np.mean(x)
+        mc = np.repeat(mean_voltage, len(x))
+        data_list.append([0, len(x), len(x), mean_voltage])
+    elif detection_number == 1:
+        mc = np.concatenate((np.repeat(mean[krmv[0]], krmv[0]), np.repeat(mean[k], k - krmv[0])))
+        data_list.append([0, krmv[0], krmv[0] - 1, mean[krmv[0]]])
+        data_list.append([krmv[0], k + 1, k - krmv[0] + 1, mean[k]])
+    else:
+        # print(krmv[0])
+        mc = np.repeat(mean[krmv[0]], krmv[0])
+        data_list.append([0, krmv[0], krmv[0], mean[krmv[0]]])
+        for idx in range(1, detection_number):
+            new_piece = np.repeat(mean[krmv[idx]], krmv[idx] - krmv[idx - 1])
+            mc = np.concatenate((mc, new_piece))
+            data_list.append([krmv[idx - 1], krmv[idx], krmv[idx] - krmv[idx - 1], mean[krmv[idx]]])
+        new_piece = np.repeat(mean[k], k - krmv[-1])
+        mc = np.concatenate((mc, new_piece))
+        data_list.append([krmv[-1], k + 1, k - krmv[-1] + 1, mean[k]])
+
+    table_labels = ['Start Index', 'End Index', 'Duration', 'Voltage Level']
+    event_table = pd.DataFrame(data=data_list, columns=table_labels)
+    return mc, kd, krmv, event_table
+
+
 if __name__ == "__main__":
-    # Mat file is matlab data. Should be in a more portable format (JSON?); Was changed to info_file_name
+    # Mat file is matlab data. Should be in a more portable format (JSON?)  Was changed to info_file_name
     info_file_name = r"C:\Users\Noah PC\PycharmProjects\Pyth-Ion\PythIon\Sample Data\3500bp-200mV.mat"
     data_file_name = r"C:\Users\Noah PC\PycharmProjects\Pyth-Ion\PythIon\Sample Data\3500bp-200mV.log"
     lp_filter_cutoff = 100000
@@ -105,14 +199,15 @@ if __name__ == "__main__":
     data, sample_rate = load_log_file(info_file_name, data_file_name, lp_filter_cutoff, out_sample_rate)
     data = data[20:-20]  # Removing weird spikes from data
     small_data = data[:int(1e6)]  # First million points contain one event
-    base_sd = np.std(data[:200000])
-    baseline = np.mean(data)
-    events = analyze(data, threshold, out_sample_rate)
-    num_events = len(events)
-    cusum_result = cusum(data, base_sd, out_sample_rate)
-    frac = [event.local_baseline / baseline for event in events]
-    # Time between the starts of events?
-    dt = np.concatenate([[0], np.diff([event.start for event in events]) / out_sample_rate])
+    correct_test = correct_cusum(data[:12000000], 3e-10, 1e-10)
+    # base_sd = np.std(data[:200000])
+    # baseline = np.mean(data)
+    # events = analyze(data, threshold, out_sample_rate)
+    # num_events = len(events)
+    # cusum_result = cusum(data, base_sd, out_sample_rate)
+    # frac = [event.local_baseline / baseline for event in events]
+    # # Time between the starts of events?
+    # dt = np.concatenate([[0], np.diff([event.start for event in events]) / out_sample_rate])
 
 
 
