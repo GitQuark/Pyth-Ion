@@ -1,33 +1,29 @@
-import pandas as pd
-import pandas.io.parsers
-import pyqtgraph as pg
-from scipy import io as spio
-from scipy import ndimage
-from scipy import signal
-from typing import List
-import peakutils
-
 from PythIon.Utility import *
 
-from PythIon import CUSUM, EdgeDetect
+from scipy import signal
+from PythIon import CUSUM
 from PythIon.PoreSizer import *
-from PythIon.abfheader import *
-from PythIon.batchinfo import *
+from PythIon.SetupUtilities import *
+from PythIon.Utility import *
 # plotguiuniversal works well for mac and laptops,
 # for larger screens try PlotGUI
 from PythIon.Widgets.PlotGUI import *
+
+
 # from PythIon.plotguiuniversal import *
 
 
 class GUIForm(QtWidgets.QMainWindow):
+    dataset: VoltageData
     events: List[Event]
 
-    def __init__(self, width, height, master=None):
-        # Setup GUI and draw elements from UI file
-        QtWidgets.QMainWindow.__init__(self, master)
+    # Setup GUI and draw elements from UI file
+    def __init__(self, master=None):
+        super().__init__(master)
+        self.filtered_data = None
         pg.setConfigOptions(antialias=True)
 
-        self.ui = setupUi(self)
+        self.ui = setup_ui(self)
         self.signal_plot = setup_signal_plot(self.ui)
         self.event_plot = setup_event_plot(self.clicked)
         self.scatter_plot = setup_scatter_plot(self, self.event_plot)
@@ -53,19 +49,9 @@ class GUIForm(QtWidgets.QMainWindow):
         self.num_events = 0
         self.batch_processor = None
         self.file_list = None
-        self.data = None
-        self.baseline = None
-        self.var = None
-        self.sample_rate = None
-        self.output_sample_rate = None
-        self.mat_file_name = None
-        self.t = None
+        self.dataset = None
+
         self.cat_fits = None
-        self.min_level_t = None
-        self.LPfiltercutoff = None
-        self.max_states = 1
-        self.width = width
-        self.height = height
         self.file_type = None
         self.events = None
 
@@ -73,28 +59,22 @@ class GUIForm(QtWidgets.QMainWindow):
         self.total_plot_points = len(self.event_plot.data)
         self.threshold = np.float64(self.ui.thresholdentry.text()) * 10 ** -9
 
-    def load(self, load_and_plot=True):
+    def load(self):
         sdf = self.sdf
         ui = self.ui
-        p3 = self.voltage_hist
-        p2 = self.event_plot
-        p1 = self.signal_plot
-        baseline = self.baseline
         data_file_name = self.data_file_name
-        var = self.var
-        sample_rate = self.sample_rate
-        has_baseline_been_set = self.has_baseline_been_set
-
-        p3.clear()
-        p3.setLabel('bottom', text='Current', units='A', unitprefix='n')
-        p3.setLabel('left', text='', units='Counts')
-        p3.setAspectLocked(False)
+        if not data_file_name:
+            return
+        self.voltage_hist.clear()
+        self.voltage_hist.setLabel('bottom', text='Current', units='A', unitprefix='n')
+        self.voltage_hist.setLabel('left', text='', units='Counts')
+        self.voltage_hist.setAspectLocked(False)
 
         colors = np.array(sdf.color)
         for i in range(len(colors)):
             colors[i] = pg.Color(colors[i])
 
-        p2.setBrush(colors, mask=None)
+        self.event_plot.setBrush(colors, mask=None)
 
         ui.eventinfolabel.clear()
         ui.eventcounterlabel.clear()
@@ -103,57 +83,23 @@ class GUIForm(QtWidgets.QMainWindow):
         ui.meandtlabel.clear()
         ui.eventnumberentry.setText(str(1))
 
-        float_tol = 10 ** -9  # I may be completely misunderstanding this
-        threshold = np.float64(ui.thresholdentry.text()) * float_tol
+        billionth = 10 ** -9
+        threshold = float(ui.thresholdentry.text()) * billionth
         ui.filelabel.setText(data_file_name)
         print(data_file_name)
-        # TODO: Remove the magic numbers (1000 specifically)
-        lp_filter_cutoff = np.float64(ui.LPentry.text()) * 1000
+        low_pass_cutoff = float(ui.LPentry.text())  # In Hz
         # use integer multiples of 4166.67 ie 2083.33 or 1041.67
-        output_sample_rate = np.float64(ui.outputsamplerateentry.text()) * 1000
+        self.dataset = VoltageData(data_file_name)
 
-        # noinspection PyTypeChecker
-        mat_file_name = str(os.path.splitext(data_file_name)[0])
-        # noinspection PyTypeChecker
-        file_type = str(os.path.splitext(data_file_name)[1])
-        if file_type == '.log':
-            data, sample_rate = load_log_file(mat_file_name, data_file_name, lp_filter_cutoff, output_sample_rate)
-        elif file_type == '.opt':
-            data, output_sample_rate = load_opt_file(data_file_name, mat_file_name, ui,
-                                                     output_sample_rate, lp_filter_cutoff)
-        elif file_type == '.txt':
-            data = load_txt_file(data_file_name)
-        elif file_type == '.npy':
-            data = load_npy_file(data_file_name)
-        elif file_type == '.abf':
-            data, sample_rate, output_sample_rate, lp_filter_cutoff, p1 = \
-                load_abf_file(data_file_name, output_sample_rate, ui, lp_filter_cutoff, p1)
-        else:
-            return
-
-        data = data[20:-20]
-        # data = EdgeDetect.canny_1d(data, 250, 3)
-        t = np.arange(0, len(data)) / output_sample_rate
-
-        if not has_baseline_been_set:
-            baseline = np.median(data)
-            var = np.std(data)
+        baseline = self.dataset.data_params.get('baseline')
         ui.eventcounterlabel.setText('Baseline=' + str(round(baseline * BILLION, 2)) + ' nA')
 
-        if load_and_plot:
-            plot_on_load(self, data, baseline, threshold, file_type, t, p1, p3)
+        if self.dataset.file_type in ('.log', '.abf', '.opt'):
+            self.dataset.processed_data(low_pass_cutoff)
 
-        self.sample_rate = sample_rate
-        self.LPfiltercutoff = lp_filter_cutoff
-        self.output_sample_rate = output_sample_rate
-        self.mat_file_name = mat_file_name
-        self.var = var
-        self.baseline = baseline
+        update_signal_plot(self.dataset, self.signal_plot, self.voltage_hist)
+        self.signal_plot.autoRange()
         self.threshold = threshold
-        self.t = t
-        self.data = data
-        self.file_type = file_type
-
     #        if self.v != []:
     #            self.p1.plot(self.t[2:][:-2],self.v[2:][:-2],pen='r')
 
@@ -165,59 +111,31 @@ class GUIForm(QtWidgets.QMainWindow):
     # Static
     def get_file(self):
         wd = os.getcwd()
-        try:
-            # attempt to open dialog from most recent directory
-            data_file_name = QtWidgets.QFileDialog.getOpenFileName(self, 'Open file', wd,
-                                                                   "*.log;*.opt;*.npy;*.abf")
-            if data_file_name == ('', ''):
-                self.data_file_name = data_file_name
-                return
+        # attempt to open dialog from most recent directory
+        suffix_filter = "*.log;*.opt;*.npy;*.abf"
+        data_file_name, _ = QtWidgets.QFileDialog.getOpenFileName(self, 'Open file', wd, suffix_filter)
+        if data_file_name == ('', ''):  # Interaction canceled
+            return
 
-            data_file_name = data_file_name[0]
-            self.data_file_name = data_file_name
-            wd = os.path.dirname(data_file_name)
-            self.load()
-
-        except IOError as e:
-            # if user cancels during file selection, exit loop
-            print(e)
+        self.data_file_name = data_file_name
+        self.load()
 
     def analyze(self):
-        data = self.data
-        if data is None:
+        dataset = self.dataset
+        if dataset is None:
             return
-        output_sample_rate = self.output_sample_rate
-
-        time_plot = self.signal_plot
         durations_plot = self.event_plot
-        info_file_name = self.mat_file_name
-
-        self.analyze_type = 'coarse'
+        self.analyze_type = 'coarse'  # Still don't know what this was for
         self.clear_w_plots()
-        ui = self.ui
-        threshold = np.float64(ui.thresholdentry.text()) * 10 ** -9  # Level below which voltage drop is significant
-
-        # Setup happens above
-        events = analyze(data, threshold, output_sample_rate)
-
-        new_sdf = event_info_update(data, info_file_name, self.t, self.cb, events, ui, self.sdf, time_plot,
-                                    durations_plot, self.scatter_plot, self.w2, self.w3, self.w4, self.w5)
-
-        # Reassigning class variables
-        self.events = events
-        self.sdf = new_sdf
+        threshold = np.float64(self.ui.thresholdentry.text()) * 1e-9  # Now in number of standard deviations
+        dataset.detect_events(threshold)
+        update_signal_plot(dataset, self.signal_plot, self.voltage_hist)
 
     def save(self):
-        info_file_name = self.mat_file_name
-        events = self.events
-        deltas = [event.delta for event in events]
-        durations = [event.duration for event in events]
-        frac = calc_frac(events)
-        dt = calc_dt(events)
-        noise = [event.noise for event in events]
-        col_stack = np.column_stack((deltas, frac, durations, dt, noise))
+        dataset = self.dataset
+        event_table = dataset.generate_event_table()
         header_names = '\t'.join(["deli", "frac", "dwell", "dt", 'stdev'])
-        np.savetxt(info_file_name + 'DB.txt', col_stack, delimiter='\t', header=header_names)
+        np.savetxt(dataset.file_name + '_EventData.txt', event_table, delimiter='\t', header=header_names)
 
     # Called by Go button
     # TODO: Continue cleanump and input sanitizing
@@ -331,6 +249,13 @@ class GUIForm(QtWidgets.QMainWindow):
     #
     #
 
+    def replot(self):
+        if not self.dataset:
+            return
+        low_pass_cutoff = int(self.ui.LPentry.text())
+        self.dataset.process_data(low_pass_cutoff)
+        update_signal_plot(self.dataset, self.signal_plot, self.voltage_hist)
+
     def next_event(self):
         element = self.ui.eventnumberentry
         num_events = len(self.events)
@@ -355,47 +280,32 @@ class GUIForm(QtWidgets.QMainWindow):
         """
 Allows user to select region of data to be removed
         """
-        data = self.data
-        if data is None:
+        dataset = self.dataset
+        if dataset is None:
             return
-        ui = self.ui
-        file_type = self.file_type
-        threshold = self.threshold
-        baseline = self.baseline
-        var = self.var
-        output_sample_rate = self.output_sample_rate
-        t = self.t
         batch_info = self.batch_info
         # first check to see if cutting
         cut_region = self.cut_region
-        p1 = self.signal_plot
-        p3 = self.voltage_hist
-        has_baseline_been_set = self.has_baseline_been_set
+        signal_plot = self.signal_plot
+        voltage_hist = self.voltage_hist
 
         if cut_region.isVisible():
             # If cut region has been set, cut region and replot remaining data
             left_bound, right_bound = cut_region.getRegion()
             cut_region.hide()
-            p1.clear()
-            p3.clear()
-            selected_pts = np.arange(np.int(max(left_bound, 0) * output_sample_rate),
-                                     np.int(right_bound * output_sample_rate))
-            data = np.delete(data, selected_pts)
-            t = np.arange(0, len(data)) / output_sample_rate
+            signal_plot.clear()
+            voltage_hist.clear()
+            sample_rate = self.dataset.data_params.get('sample_rate')
+            interval = (int(left_bound * sample_rate), int(right_bound * sample_rate) + 1)
+            dataset.add_cut(interval)
+            dataset.process_data()
 
-            if not has_baseline_been_set:
-                baseline = np.median(data)
-                var = np.std(data)
-                has_baseline_been_set = True
-                ui.eventcounterlabel.setText('Baseline=' + str(round(baseline * BILLION, 2)) + ' nA')
-
-            update_p1(self, t, data, baseline, threshold, file_type)
+            update_signal_plot(dataset, signal_plot, voltage_hist)
             # aph_y, aph_x = np.histogram(data, bins = len(data)/1000)
-            aph_y, aph_x = np.histogram(data, bins=1000)
-
-            aph_hist = pg.BarGraphItem(height=aph_y, x0=aph_x[:-1], x1=aph_x[1:], brush='b', pen=None)
-            p3.addItem(aph_hist)
-            p3.setXRange(np.min(data), np.max(data))
+            # aph_y, aph_x = np.histogram(data, bins=1000)
+            # aph_hist = pg.BarGraphItem(height=aph_y, x0=aph_x[:-1], x1=aph_x[1:], brush='b', pen=None)
+            # voltage_hist.addItem(aph_hist)
+            # voltage_hist.setXRange(np.min(dataset.processed_data), np.max(dataset.processed_data))
 
             # cf = pd.DataFrame([cut_region], columns=list(['cutstart', 'cutend']))
             # batch_info = batch_info.append(cf, ignore_index=True)
@@ -419,54 +329,40 @@ Allows user to select region of data to be removed
             #
             #     cut_region.setRegion((t[clear_starts], t[clear_ends]))
 
-            p1.addItem(cut_region)
+            signal_plot.addItem(cut_region)
             cut_region.show()
 
-        self.has_baseline_been_set = has_baseline_been_set
         self.cut_region = cut_region
-        self.baseline = baseline
-        self.var = var
         self.batch_info = batch_info
-        self.t = t
-        self.data = data
 
     def set_baseline(self):
         """
         Toggle that allows a region of the graph to be selected to used as the baseline.
         """
-        base_region = self.base_region
-        p1 = self.signal_plot
-        ui = self.ui
-        threshold = self.threshold
-        data = self.data
-        if data is None:
+        dataset = self.dataset
+        if dataset is None:
             return
-        output_sample_rate = self.output_sample_rate
-        t = self.t
+        base_region = self.base_region
+        ui = self.ui
+        sample_rate = self.dataset.data_params.get('sample_rate')
 
-        p1.clear()
+        self.signal_plot.clear()
         if base_region.isVisible():
             left_bound, right_bound = base_region.getRegion()
-
-            selected_pts = data[np.arange(int(max(left_bound, 0) * output_sample_rate),
-                                          int(right_bound * output_sample_rate))]
-            baseline = np.median(selected_pts)
-            var = np.std(selected_pts)
-            update_p1(self, t, data, baseline, threshold)
+            start, end = (int(max(left_bound, 0) * sample_rate), int(right_bound * sample_rate))
+            baseline = np.mean(dataset.processed_data[start: end])
+            update_signal_plot(dataset, self.signal_plot, self.voltage_plot)
             base_region.hide()
+
             baseline_text = 'Baseline=' + str(round(baseline * BILLION, 2)) + ' nA'
             ui.eventcounterlabel.setText(baseline_text)
-            self.baseline = baseline
             self.has_baseline_been_set = True
-            self.var = var
         else:
             # base_region = pg.LinearRegionItem()  # PyQtgraph object for selecting a region
             # base_region.hide()
-            p1.addItem(base_region)
-            # p1.plot(t[::100],data[::100],pen='b')
-            p1.plot(t, data, pen='b')
+            self.signal_plot.addItem(base_region)
+            update_signal_plot(dataset, self.signal_plot, self.voltage_plot)
             base_region.show()
-
         self.base_region = base_region
 
     def clear_scatter(self):
@@ -519,27 +415,11 @@ Allows user to select region of data to be removed
         self.ui = ui
 
     def invert_data(self):
-        data = self.data
-        if data is None:
+        if self.dataset:
+            self.dataset.data_params['inverted'] = True
+        else:
             return
-        p1 = self.signal_plot
-        baseline = -self.baseline
-        var = self.var
-        threshold = -self.threshold
-        t = self.t
-        has_baseline_been_set = self.has_baseline_been_set
-        p1.clear()
-        data = -data
-
-        if not has_baseline_been_set:
-            baseline = np.median(data)
-            var = np.std(data)
-
-        update_p1(self, t, data, baseline, threshold)
-
-        self.var = var
-        self.baseline = baseline
-        self.threshold = threshold
+        update_signal_plot(self.dataset, self.signal_plot)
 
     def clear_w_plots(self):
         self.w2.clear()
@@ -713,8 +593,8 @@ Allows user to select region of data to be removed
             }
             event_table = event_table.assign(**compute_dict)
             event_table = event_table.loc[:, ('Start Index', 'End Index', 'Duration',
-                                       'Start Time', 'End Time', 'Duration (s)',
-                                       'Voltage Level')]
+                                              'Start Time', 'End Time', 'Duration (s)',
+                                              'Voltage Level')]
             event_table.to_csv(file_name + extention)
 
         # np.savetxt(self.mat_file_name + '_Levels.txt', np.abs(cusum['jumps'] * 10 ** 12), delimiter='\t')
@@ -849,10 +729,10 @@ Allows user to select region of data to be removed
             batch_info = pd.read_pickle(f)
             try:
                 data_file_name = f[:-13] + '.opt'
-                self.load(load_and_plot=False)
+                self.load()
             except IOError:
                 data_file_name = f[:-13] + '.log'
-                self.load(load_and_plot=False)
+                self.load()
             if invert_status:
                 data = -data
                 if not has_baseline_been_set:
@@ -965,9 +845,9 @@ Allows user to select region of data to be removed
 def start():
     # global my_app
     app = QtWidgets.QApplication(sys.argv)
-    resolution = app.desktop().screenGeometry()
-    width, height = resolution.width(), resolution.height()
-    my_app = GUIForm(width=width, height=height)
+    # resolution = app.desktop().screenGeometry()
+    # width, height = resolution.width(), resolution.height()
+    my_app = GUIForm()
     my_app.show()
     sys.exit(app.exec_())
 

@@ -1,18 +1,17 @@
+import math
 import os
+from itertools import chain
+from typing import List
+
 import numpy as np
 import pandas as pd
 import pyqtgraph as pg
-import pandas.io.parsers
-
-from PythIon.abfheader import read_header
-from typing import List
-from inspect import getmembers
-from scipy import ndimage
-from scipy import signal
-from scipy import io as spio
 
 # from PythIon.plotguiuniversal import *
-from PythIon.Widgets.PlotGUI import *
+from scipy import signal
+
+from PythIon import EdgeDetect
+from PythIon.SetupUtilities import load_log_file, load_txt_file, load_npy_file, load_abf_file, load_opt_file
 
 
 def bound(num, lower, upper):
@@ -60,8 +59,7 @@ def num_from_text_element(element, lower=None, upper=None, default=0):
     # TODO: Check element is correct type
     try:
         num_input = int(element.text())
-    except ValueError as e:
-        print(e)
+    except ValueError:
         # User tried to enter something other than a number into event num text box
         element.setText(str(default))
         return default
@@ -77,312 +75,12 @@ def generate_event_pts(start, end, buffer, baseline, delta):
     return event_pts
 
 
-def generate_data_pts(data, start, end):
-    return data[start:end]
-
-
-# Loads the log file data and outputs a vector of voltages and the sample rate
-def load_log_file(info_file_name, data_file_name, lp_filter_cutoff, output_sample_rate):
-    def data_to_amps(raw_data, adc_bits, adc_vref, closedloop_gain, current_offset):
-        # Computations to turn uint16 data into amps
-        bitmask = (2 ** 16) - (1 + ((2 ** (16 - adc_bits)) - 1))
-        raw_data = -adc_vref + ((2 * adc_vref * (raw_data & bitmask)) / 2 ** 16)
-        raw_data = (raw_data / closedloop_gain + current_offset)
-        data = raw_data[0]  # Retrurns the list to a single level: [[data]] -> [data]
-        return data
-
-    mat = spio.loadmat(info_file_name)
-    # ADC is analog to digital converter
-    # Loading in data about file from matlab data file
-    sample_rate = mat['ADCSAMPLERATE'][0][0]
-    ti_gain = mat['SETUP_TIAgain']
-    pre_adc_gain = mat['SETUP_preADCgain'][0][0]
-    current_offset = mat['SETUP_pAoffset'][0][0]
-    adc_vref = mat['SETUP_ADCVREF'][0][0]
-    adc_bits = mat['SETUP_ADCBITS']
-    closedloop_gain = ti_gain * pre_adc_gain
-    # Info has been loaded
-
-    chimera_file = np.dtype('uint16')  # Was <u2 "Little-endian 2 byte unsigned integer"
-    raw_data = np.fromfile(data_file_name, chimera_file)
-    # Part to handle low sample rate
-    if sample_rate < 4000e3:
-        raw_data = raw_data[::round(sample_rate / output_sample_rate)]
-    data = data_to_amps(raw_data, adc_bits, adc_vref, closedloop_gain, current_offset)
-    # Data has been loaded
-
-    # Fow filtering data (NG: Don't know why or what this does)
-    wn = round(lp_filter_cutoff / (sample_rate / 2), 4)  #
-    # noinspection PyTupleAssignmentBalance
-    b, a = signal.bessel(4, wn, btype='low')
-    # FIXME: scipy gives warning for this function due to internal implementation
-    data = signal.filtfilt(b, a, data)
-
-    return data, sample_rate
-
-
-def load_opt_file(data_file_name, mat_file_name, ui, output_sample_rate, lp_filter_cutoff):
-    data = np.fromfile(data_file_name, dtype=np.dtype('>d'))
-    try:
-        mat = spio.loadmat(mat_file_name + '_inf')
-        mat_struct = mat[os.path.basename(mat_file_name)]
-        # matstruct.shape
-        mat = mat_struct[0][0]
-        sample_rate = np.float64(mat['sample_rate'])
-        filt_rate = np.float64(mat['filterfreq'])
-    except TypeError as e:
-        print(e)
-        # try to load NFS file
-        try:
-            matfile = os.path.basename(mat_file_name)
-            mat = spio.loadmat(mat_file_name)[matfile]
-            sample_rate = np.float64(mat['sample_rate'])
-            filt_rate = np.float64(mat['filterfreq'] * 1000)
-            # potential = np.float64(mat['potential'])
-            # pre_trigger_time_ms = np.float64(mat['pretrigger_time'])
-            # post_trigger_time_ms = np.float64(mat['posttrigger_time'])
-
-            # trigger_data = mat['triggered_pulse']
-            # start_voltage = trigger_data[0].initial_value
-            # final_voltage = trigger_data[0].ramp_target_value
-            # ramp_duration_ms = trigger_data[0].duration
-            # eject_voltage = trigger_data[1].initial_value
-            # eject_duration_ms = np.float64(trigger_data[1].duration)
-        except TypeError as e:
-            print(e)
-            return
-
-    if sample_rate < output_sample_rate:
-        print("data sampled at lower rate than requested, reverting to original sampling rate")
-        ui.outputsamplerateentry.setText(str((round(sample_rate) / 1000)))
-        output_sample_rate = sample_rate
-
-    elif output_sample_rate > 250e3:
-        print('sample rate can not be >250kHz for axopatch files, displaying with a rate of 250kHz')
-        output_sample_rate = 250e3
-
-    if lp_filter_cutoff >= filt_rate:
-        print('Already LP filtered lower than or at entry, data will not be filtered')
-        lp_filter_cutoff = filt_rate
-        ui.LPentry.setText(str((round(lp_filter_cutoff) / 1000)))
-
-    elif lp_filter_cutoff < 100e3:
-        wn = round(lp_filter_cutoff / (100 * 10 ** 3 / 2), 4)
-        # noinspection PyTupleAssignmentBalance
-        b, a = signal.bessel(4, wn, btype='low')
-        data = signal.filtfilt(b, a, data)
-    else:
-        print('Filter value too high, data not filtered')
-
-    return data, output_sample_rate
-
-
-def load_txt_file(data_file_name):
-    data = pandas.io.parsers.read_csv(data_file_name, skiprows=1)
-    # data = np.reshape(np.array(data),np.size(data))*10**9
-    data = np.reshape(np.array(data), np.size(data))
-    return data
-
-
-def load_npy_file(data_file_name):
-    data = np.load(data_file_name)
-    return data
-
-
-def load_abf_file(data_file_name, output_sample_rate, ui, lp_filter_cutoff, p1):
-    f = open(data_file_name, "rb")  # reopen the file
-    f.seek(6144, os.SEEK_SET)
-    data = np.fromfile(f, dtype=np.dtype('<i2'))
-    header = read_header(data_file_name)
-    sample_rate = 1e6 / header['protocol']['fADCSequenceInterval']
-    telegraph_mode = int(header['listADCInfo'][0]['nTelegraphEnable'])
-    if telegraph_mode == 1:
-        ab_flow_pass = header['listADCInfo'][0]['fTelegraphFilter']
-        gain = header['listADCInfo'][0]['fTelegraphAdditGain']
-    else:
-        gain = 1
-        ab_flow_pass = sample_rate
-    data = data.astype(float) * (20. / (65536 * gain)) * 10 ** -9
-    if len(header['listADCInfo']) == 2:
-        # v = data[1::2] * gain / 10
-        data = data[::2]
-    else:
-        pass
-        # v = []
-
-    if output_sample_rate > sample_rate:
-        print('output sample_rate can not be higher than sample_rate, resetting to original rate')
-        output_sample_rate = sample_rate
-        ui.outputsamplerateentry.setText(str((round(sample_rate) / 1000)))
-    if lp_filter_cutoff >= ab_flow_pass:
-        print('Already LP filtered lower than or at entry, data will not be filtered')
-        lp_filter_cutoff = ab_flow_pass
-        ui.LPentry.setText(str((round(lp_filter_cutoff) / 1000)))
-    else:
-        wn = round(lp_filter_cutoff / (100 * 10 ** 3 / 2), 4)
-        # noinspection PyTupleAssignmentBalance
-        b, a = signal.bessel(4, wn, btype='low')
-        data = signal.filtfilt(b, a, data)
-
-    tags = header['listTag']
-    for tag in tags:
-        if tag['sComment'][0:21] == "Holding on 'Cmd 0' =>":
-            cmdv = tag['sComment'][22:]
-            # cmdv = [int(s) for s in cmdv.split() if s.isdigit()]
-            cmdt = tag['lTagTime'] / output_sample_rate
-            p1.addItem(pg.InfiniteLine(cmdt))
-            # cmdtext = pg.TextItem(text = str(cmdv)+' mV')
-            cmd_text = pg.TextItem(text=str(cmdv))
-            p1.addItem(cmd_text)
-            cmd_text.setPos(cmdt, np.max(data))
-
-    return data, sample_rate, output_sample_rate, lp_filter_cutoff, p1
-
-
-def update_p1(instance, t, data, baseline, threshold, file_type='.log'):
-    instance.signal_plot.clear()  # This might be unnecessary
-    instance.signal_plot.plot(t, data, pen='b')
-    if file_type != '.abf':
-        instance.signal_plot.addLine(y=baseline, pen='g')
-        instance.signal_plot.addLine(y=threshold, pen='r')
-
-
-def plot_on_load(instance, data, baseline, threshold, file_type, t, p1, p3):
-    p1.clear()
-    p1.setDownsampling(ds=True)
-    # skips plotting first and last two points, there was a weird spike issue
-    # p1.plot(t[2:][:-2], data[2:][:-2], pen='b')
-
-    update_p1(instance, t, data, baseline, threshold, file_type)
-
-    p1.autoRange()
-
-    p3.clear()
-    aph_y, aph_x = np.histogram(data, bins=1000)
-    aph_hist = pg.PlotCurveItem(aph_x, aph_y, stepMode=True, fillLevel=0, brush='b')
-    p3.addItem(aph_hist)
-    p3.setXRange(np.min(data), np.max(data))
-
-
 def calc_dt(events):
     return np.concatenate([[0], np.diff([event.start for event in events]) / events[0].output_sample_rate])
 
 
 def calc_frac(events):
     return [event.local_baseline / events[0].baseline for event in events]
-
-
-# Function to hide ui setup boilerplate
-def setupUi(form):
-    # TODO: Maybe move the top two lines out of function
-    ui = Ui_PythIon()
-    ui.setupUi(form)
-
-    # Linking buttons to main functions
-    ui.loadbutton.clicked.connect(form.get_file)
-    ui.analyzebutton.clicked.connect(form.analyze)
-    ui.cutbutton.clicked.connect(form.cut)
-    ui.baselinebutton.clicked.connect(form.set_baseline)
-    ui.clearscatterbutton.clicked.connect(form.clear_scatter)
-    ui.deleteeventbutton.clicked.connect(form.delete_event)
-    ui.invertbutton.clicked.connect(form.invert_data)
-    ui.concatenatebutton.clicked.connect(form.concatenate_text)
-    ui.nextfilebutton.clicked.connect(form.next_file)
-    ui.previousfilebutton.clicked.connect(form.previous_file)
-    ui.showcatbutton.clicked.connect(form.show_cat_trace)
-    ui.savecatbutton.clicked.connect(form.save_cat_trace)
-    ui.gobutton.clicked.connect(form.inspect_event)
-    ui.previousbutton.clicked.connect(form.previous_event)
-    ui.nextbutton.clicked.connect(form.next_event)
-    ui.savefitsbutton.clicked.connect(form.save_event_fits)
-    ui.fitbutton.clicked.connect(form.cusum)
-    ui.Poresizeraction.triggered.connect(form.size_pore)
-    ui.actionBatch_Process.triggered.connect(form.batch_info_dialog)
-
-    # Setting up plotting elements and their respective options
-    # TODO: Make list of plots (Setting all to white I assume)
-    ui.signalplot.setBackground('w')
-    ui.scatterplot.setBackground('w')
-    ui.eventplot.setBackground('w')
-    ui.frachistplot.setBackground('w')
-    ui.delihistplot.setBackground('w')
-    ui.dwellhistplot.setBackground('w')
-    ui.dthistplot.setBackground('w')
-    # ui.PSDplot.setBackground('w')
-    return ui
-
-
-def setup_signal_plot(ui):
-    signal_plot = ui.signalplot.addPlot()
-    signal_plot.setLabel('bottom', text='Time', units='s')
-    signal_plot.setLabel('left', text='Current', units='A')
-    # signal_plot.enableAutoRange(axis='x')
-    signal_plot.setClipToView(clip=True)  # THIS IS THE MOST IMPORTANT LINE!!!!
-    signal_plot.setDownsampling(ds=True, auto=True, mode='peak')
-    return signal_plot
-
-
-def setup_event_plot(clicked):
-    event_plot = pg.ScatterPlotItem()
-    event_plot.sigClicked.connect(clicked)
-    return event_plot
-
-
-def setup_scatter_plot(instance, p2):
-    w1 = instance.ui.scatterplot.addPlot()
-    w1.addItem(p2)
-    w1.setLabel('bottom', text='Time', units=u'μs')
-    w1.setLabel('left', text='Fractional Current Blockage')
-    w1.setLogMode(x=True, y=False)
-    w1.showGrid(x=True, y=True)
-    return w1
-
-
-def setup_cb(ui):
-    cb = pg.ColorButton(ui.scatterplot, color=(0, 0, 255, 50))
-    cb.setFixedHeight(30)
-    cb.setFixedWidth(30)
-    cb.move(0, 210)
-    cb.show()
-    return cb
-
-
-def setup_plots(instance):  # TODO: revisit name
-    frac_hist = instance.ui.frachistplot.addPlot()
-    frac_hist.setLabel('bottom', text='Fractional Current Blockage')
-    frac_hist.setLabel('left', text='Counts')
-
-    delta_hist = instance.ui.delihistplot.addPlot()
-    delta_hist.setLabel('bottom', text='ΔI', units='A')
-    delta_hist.setLabel('left', text='Counts')
-
-    duration_hist = instance.ui.dwellhistplot.addPlot()
-    duration_hist.setLabel('bottom', text='Log Dwell Time', units='μs')
-    duration_hist.setLabel('left', text='Counts')
-
-    dt_hist = instance.ui.dthistplot.addPlot()
-    dt_hist.setLabel('bottom', text='dt', units='s')
-    dt_hist.setLabel('left', text='Counts')
-    return frac_hist, delta_hist, duration_hist, dt_hist
-
-
-def load_logo():
-    dir_path = os.path.dirname(os.path.realpath(__file__))
-    logo = ndimage.imread(dir_path + os.sep.join(["", "Assets", "pythionlogo.png"]))
-    logo = np.rot90(logo, -1)
-    logo = pg.ImageItem(logo)
-    return logo
-
-
-def setup_voltage_hist(ui, logo):
-    p3 = ui.eventplot.addPlot()
-    p3.hideAxis('bottom')
-    p3.hideAxis('left')
-    p3.addItem(logo)
-    p3.setMouseEnabled(x=True, y=False)
-    # Maybe make log scaled on y-axis
-    p3.setAspectLocked(True)
-    return p3
 
 
 # Takes the data and returns list of event objects.
@@ -436,7 +134,7 @@ def save_cat_data(data, events, ui, info_file_name):
         if adj_end > events[idx + 1].start:
             print('overlapping event')
             continue
-        data_pts = generate_data_pts(data, adj_start, adj_end)
+        data_pts = data[adj_start: adj_end]
         event_pts = generate_event_pts(adj_start, adj_end, event_buffer, baseline, event.delta)
         cat_data = np.concatenate((cat_data, data_pts), 0)
         cat_fits = np.concatenate((cat_fits, event_pts), 0)
@@ -480,7 +178,8 @@ def update_histograms(sdf, ui, events, w2, w3, w4, w5):
         w5.addItem(hist)
 
 
-def event_info_update(data, info_file_name, t, cb, events, ui, sdf, time_plot, durations_plot, w1, w2, w3, w4, w5):
+def event_info_update(data, info_file_name, cb, events, ui, sdf, time_plot, durations_plot,
+                      w1, w2, w3, w4, w5, sample_rate):
     frac = calc_frac(events)
     dt = calc_dt(events)
     num_events = len(events)
@@ -494,6 +193,7 @@ def event_info_update(data, info_file_name, t, cb, events, ui, sdf, time_plot, d
     # skips plotting first and last two points, there was a weird spike issue
     #        self.time_plot.plot(self.t[::10][2:][:-2],data[::10][2:][:-2],pen='b')
     time_plot.clear()
+    t = np.arange(0, len(data)) / sample_rate
     time_plot.plot(t[2:][:-2], data[2:][:-2], pen='b')
     if num_events >= 2:
         # TODO: Figure out why a single point can't be plotted
@@ -542,65 +242,335 @@ def event_info_update(data, info_file_name, t, cb, events, ui, sdf, time_plot, d
     return sdf
 
 
+def converging_baseline(data, sigma=1, tol=0.001):
+    baseline = np.mean(data)
+    stdev = np.std(data)
+    for n in range(10):
+        zeroed_data = data - baseline
+        baseline_points = abs(zeroed_data) - (sigma * stdev) < 0
+        old_baseline = baseline
+        baseline = np.mean(data[baseline_points])
+        stdev = np.std(data[baseline_points])
+        if abs(old_baseline - baseline) < abs(baseline * tol):
+            break
+    # noinspection PyUnresolvedReferences,PyUnboundLocalVariable
+    return baseline, stdev
+
+
+def stdfilt(data, filter_size=5):
+    # Use itterative method for calulating standard deviation
+    running_stdev = [math.sqrt(x) for _, x in running_stats(data, filter_size)]
+    return running_stdev
+
+
+def load_data(data_path):
+    file_dir = os.path.dirname(data_path)
+    file_name, file_type = os.path.basename(data_path).split('.')
+    if file_type == 'log':
+        data, data_params = load_log_file(file_name, file_dir)
+    elif file_type == 'opt':
+        data, data_params = load_opt_file(file_name, file_dir)
+    elif file_type == 'txt':
+        data, data_params = load_txt_file(file_name, file_dir)
+    elif file_type == 'npy':
+        data, data_params = load_npy_file(file_name, file_dir)
+    elif file_type == 'abf':
+        data, data_params = load_abf_file(file_name, file_dir)
+    else:
+        return
+    return data, data_params
+
+
+def running_stats(data, filter_size=5):
+    # TODO: Generalize to skew, kurtosis, etc.
+    mean = data[0]  # These are put up here so pycharm doesn't complain
+    variance = 0
+    for n in range(len(data)):
+        if n >= filter_size:
+            diff = data[n] - data[n - filter_size]
+            mean_change = diff / filter_size
+            new_pt = data[n]
+            old_pt = data[n - filter_size]
+            old_mean = mean
+            new_mean = mean + mean_change
+            variance = variance + ((new_pt - new_mean) ** 2 - (old_pt - old_mean) ** 2) / (filter_size - 1)
+            mean = new_mean
+        elif 1 <= n < filter_size:
+            mean = np.mean(data[:n + 1])
+            variance = np.var(data[:n + 1])
+        yield mean, variance
+
+
+def threshold_data(data, threshold, comparison='greater'):
+    if comparison is 'greater':
+        event_points = np.greater(abs(data), threshold)
+    elif comparison is 'less':
+        event_points = np.less(abs(data), threshold)
+    else:
+        return
+    event_bounries = np.diff(event_points.astype(int))
+    if sum(event_bounries) % 2 == 1:
+        print("Uneven number of boundaries")
+        event_bounds = []  # This section should never happen
+    elif any(event_bounries):
+        boundry_idxs = list(np.concatenate(np.argwhere(event_bounries)))
+        event_bounds = list(zip(boundry_idxs[::2], boundry_idxs[1::2]))
+    else:
+        event_bounds = []
+    return event_bounds
+
+
+def peak_detect(edge_data, thresh_multiplier=math.sqrt(2)):
+    # thresh_multiplier tries to correct the standard deviation to represent the peaks
+    # extrema = signal.argrelextrema(edge_data[::step_size], np.greater, order=order)[0]
+    # # noinspection PyTypeChecker
+    # sorted_peaks = np.sort(np.abs(edge_data[extrema * step_size]))
+    # sorted_peaks_deriv = np.diff(sorted_peaks)
+    # threshold = sorted_peaks[np.argmax(sorted_peaks_deriv) + 1]
+    extrema = signal.argrelextrema(abs(edge_data), np.greater)
+    if len(extrema) >= 2:
+        threshold = np.std(edge_data[extrema]) * thresh_multiplier
+    else:
+        threshold = np.std(edge_data) * thresh_multiplier
+    extrema_intervals = threshold_data(np.abs(edge_data), threshold)
+    return extrema_intervals
+
+
+def identify_start_and_end(data, start, threshold):
+    def separate_if_list(arg):
+        if type(arg) is List or type(arg) is tuple:
+            assert len(arg) == 2
+            lower, upper = arg
+        else:
+            lower = upper = arg
+        return lower, upper
+
+    start_point, end_point = separate_if_list(start)
+    start_threshold, end_threshold = separate_if_list(threshold)
+
+    while data[start_point] < start_threshold:
+        start_point -= 1
+    while data[end_point] < end_threshold:
+        end_point += 1
+
+    return start_point, end_point
+
+
+def threshold_search(data, sample_rate, cutoff_freq):
+    # Crude implementation to be improved
+    # Look at using scipy optimization
+    global_min, global_max = np.min(data), np.max(data)
+    # start_offset = (np.max(data) - base) / 2
+    if len(data) < 10000:
+        spacing = 1
+    else:
+        # Has some relation to nyquist rate, don't care to look into it right now
+        spacing = int(sample_rate / (2 * cutoff_freq))
+    thresholds = np.linspace(global_min, global_max, 100)
+    counts = [sum((data[::spacing] < threshold).astype(int)) for threshold in thresholds]
+    turning_point = np.argmax(np.diff(counts) / (np.arange(len(counts) - 1) + 1))
+    n = turning_point
+    # Crawl down hill to find minimum
+    while counts[n] > counts[n - 1]:
+        n -= 1
+    return thresholds[n]
+
+
+def find_extrema(data, order=1, mode='clip'):  # 1d only
+    # argrelmax/min output tuples event for 1d data
+    # TODO: maybe replace with find peaks
+    mins = signal.argrelmin(data, order=order, mode=mode)[0]  # Pulling arrays out of tuples
+    maxes = signal.argrelmax(data, order=order, mode=mode)[0]
+    extrema = np.array(list(chain.from_iterable(zip(mins, maxes))) + [mins[-1]])
+    return extrema
+
+
+def roc_pts(data, num_pts=50):
+    x_vals = np.linspace(min(data), max(data), num_pts)
+    y_vals = [sum((abs(data) < x_val).astype(int)) for x_val in x_vals]
+    return x_vals, y_vals
+
+
+def slope_crawl(data, start, direction='forward', comparison='max'):
+    if direction is 'forward':
+        change = 1
+    else:
+        change = -1
+    if comparison is 'max':
+        while data[start + change] > data[start]:
+            start += change
+    elif comparison is 'min':
+        while data[start + change] < data[start]:
+            start += change
+    return start
+
+
 BILLION = 10 ** 9  # Hopefully makes reading clearer
 
 
 class Event(object):
     subevents: List
 
-    def __init__(self, data, start, end, baseline, output_sample_rate, subevents=None):
+    def __init__(self, data, start, end, baseline, sample_rate):
         # Start and end are the indicies in the data
-        if subevents is None:
-            subevents = []
+        print(start, end)
         self.baseline = baseline
-        self.output_sample_rate = output_sample_rate
-
-        self.local_baseline = np.mean(data[start:end])  # Could be made more precise, but good enough
+        self.sample_rate = sample_rate
+        start = slope_crawl(data, start, 'backward')
+        end = slope_crawl(data, end, 'forward')
+        self.start, self.end = start, end
+        self.data = data[self.start: self.end]
+        extrema = find_extrema(self.data)
+        self.main_bounds = (extrema[0], extrema[-1] + 1)
+        main_event = self.data[self.main_bounds[0]: self.main_bounds[1]]
+        self.local_baseline, self.local_stedev = np.mean(main_event), np.std(main_event)
+        self.intervals = self.interval_detect(main_event, num_stdevs=1.75, min_length=1000)
         # True can false are converted to 1 and 0, np.argmax returns index of first ture value
-        true_start = start - np.argmax(data[start::-1] > self.local_baseline) + 1
-        true_end = end - np.argmax(data[end - 1::-1] < self.local_baseline)
-        self.start = true_start
-        self.end = true_end
 
-        self.data = data[self.start:self.end + 1]
         # TODO: Fix slight error in calculations; Too much past the tails is included in fall and rise
         # Rise_end seems to have consistent issues
         self.noise = np.std(self.data)
-        self.duration = (self.end - self.start) / output_sample_rate  # In seconds
-        self.delta = baseline - np.min(self.data)  # In Volts
-        fall_offset = np.argmax(data[self.start::-1] > baseline)
-        rise_offset = 0
-        if self.end < len(data):  # Condition can fail if voltage has not returned to normal by the end of the data
-            rise_offset = np.argmax(data[self.end:] > baseline)
-
-        self.fall_start = self.start - fall_offset + 1
-        self.rise_end = self.end + rise_offset - 1
-        self.full_data = data[self.fall_start:self.rise_end + 1]
-
-        self.subevents = subevents
+        self.durations = [(start - end) / sample_rate for start, end in self.intervals]  # In seconds
+        self.levels = [np.mean(main_event[start: end]) for start, end in self.intervals]  # In Volts
+        self.deltas = [baseline - level for level in self.levels]
 
     def __repr__(self):
-        return str((self.start/self.output_sample_rate, self.end/self.output_sample_rate))
+        return str(self.levels)
+
+    # Returns the actual event list properly nested
+    @staticmethod
+    def interval_detect(data, num_stdevs=1.75, min_length=500):
+        # TODO: set a maximum rise time
+        if len(data) < min_length:
+            return [(0, len(data))]
+        edge_data = EdgeDetect.canny_1d(data, 250, 3)
+        change_intervals = peak_detect(edge_data)  # Intervals where slope is significant
+        index_list = [0] + [idx for interval in change_intervals for idx in interval] + [len(data)]
+        intervals = [(index_list[2 * n], index_list[2 * n + 1]) for n in range(int(len(index_list) / 2))]
+        intervals.reverse()
+        interval = intervals.pop()
+        while intervals and interval[1] - interval[0] < min_length:
+            if not intervals:
+                event_list = [(0, len(data))]
+                break
+            _, new_end = intervals.pop()
+            interval = (0, new_end)
+        else:
+            event_list = [interval]
+        intervals.reverse()
+        for interval in intervals[1:]:
+            # IGNORE: Following python conventions of data point at end not included; interval[1] is in event
+            old_start, old_end = event_list[-1]
+            start, end = interval
+            too_short = end - start < min_length
+            # print(old_start, old_end, start, end)
+            # print(np.mean(data[start:end]) - np.mean(data[old_start:old_end]))
+            level_change = np.mean(data[start:end]) - np.mean(data[old_start:old_end])
+            change_too_small = abs(level_change) < num_stdevs * np.std(data)
+            if too_short or change_too_small:
+                event_list[-1] = (old_start, end)
+            else:
+                prev_start, prev_end = event_list[-1]
+                if data[prev_end] < data[start]:
+                    new_end_of_prev_interval = slope_crawl(data, start, 'backward', comparison='min')
+                else:  # data[prev_end] > data[start]
+                    new_end_of_prev_interval = slope_crawl(data, start, 'backward', comparison='max')
+                event_list[-1] = (prev_start, new_end_of_prev_interval)
+
+                event_list.append((start, end))
+        return event_list
+
+    def piecewise_fit(self, offset_fit=False):
+        offset = 0
+        if offset_fit:
+            offset += self.start
+        fit_points = [(offset, self.data[0])]
+        offset += self.main_bounds[0]
+        for idx, interval in enumerate(self.intervals):
+            start, end = interval
+            level = self.levels[idx]
+            fit_points.append((start + offset, level))
+            fit_points.append((end + offset, level))
+        fit_points.append((offset + len(self.data) - 1, self.data[-1]))
+        x, y = zip(*fit_points)
+        return np.array(x), np.array(y)
+
+    def generate_level_entries(self):
+        for interval in self.intervals:
+            pass
 
 
 class VoltageData(object):
+    data_params: dict
     events: List[Event]
 
-    def __init__(self, data, output_sample_rate, data_file_name=None, info_file_name=None, file_type=None,
-                 lp_filter_cutoff=None, sample_rate=None, max_states=None, baseline=None):
-        self.baseline = baseline
-        self.max_states = max_states
-        self.sample_rate = sample_rate
-        self.lp_filter_cutoff = lp_filter_cutoff
-        self.file_type = file_type
-        self.info_file_name = info_file_name
-        self.data = data
-        self.data_file_name = data_file_name
-        self.output_sample_Rate = output_sample_rate
+    def __init__(self, data_path, edge_buffer=1000):
+        self.file_dir = os.path.dirname(data_path)
+        self.file_name, self.file_type = os.path.basename(data_path).split('.')
+        self.data, data_info = load_data(data_path)
+        baseline, _ = converging_baseline(self.data)
+        self.data_params = {
+            'inverted': False,
+            'edge_buffer': edge_buffer,
+            'baseline': baseline,
+            **data_info}  # Python 3.5+ trick to combine dictionary values with an existing dictionary
+        self.processed_data = self.data
+        self.events = []
+        self.cuts = []
+
+    def detect_events(self, threshold=None, min_length=1000):
+        self.events = []
+        if not threshold:
+            sample_rate = self.data_params.get('sample_rate')
+            low_pass_cutoff = self.data_params.get('low_pass_cutoff')
+            threshold = threshold_search(self.processed_data, sample_rate, low_pass_cutoff)
+        self.data_params['threshold'] = threshold
+        bounds = threshold_data(self.processed_data, threshold, 'less')
+        baseline = self.data_params.get('baseline')
+        sample_rate = self.data_params.get('sample_rate')
+        for bound in bounds:
+            start, end = bound
+            if end - start < min_length:
+                continue
+            event = Event(self.processed_data, start, end, baseline, sample_rate)
+            self.events.append(event)
+
+    def process_data(self, low_pass_cutoff=None):
+        self.processed_data = self.data
+        if self.data_params.get('inverted'):
+            self.processed_data = -self.processed_data
+            self.data_params['baseline'] = -self.data_params.get('baseline')
+
+        for cut in self.cuts:
+            # No effort to figure out an 'abosute position of the cuts'
+            cut_start, cut_end = cut
+            self.processed_data = self.processed_data[cut_start: cut_end]
+
+        if not low_pass_cutoff:
+            low_pass_cutoff = self.data_params.get('low_pass_cutoff')
+        sample_rate = self.data_params.get('sample_rate')
+        if low_pass_cutoff and sample_rate:
+            self.data_params['low_pass_cutoff'] = low_pass_cutoff
+            nyquist_freq = sample_rate / 2
+            wn = low_pass_cutoff / nyquist_freq
+            # noinspection PyTupleAssignmentBalance
+            b, a = signal.bessel(4, wn, btype='low')
+            self.processed_data = signal.filtfilt(b, a, self.processed_data)
+
+        edge_buffer = self.data_params.get('edge_buffer')
+        self.processed_data = self.processed_data[edge_buffer: -edge_buffer]
+
+    def reset(self):
+        self.processed_data = self.data
+        self.cuts = []
         self.events = []
 
-    def delete_event(self):
-        pass
+    def event_fits(self):
+        fits = []
+        for event in self.events:
+            fit = event.piecewise_fit(offset_fit=True)
+            fits.append(fit)
+        return fits  # List of fits fo each event
 
     def get_event_prop(self, prop_name):
         if not self.events:
@@ -609,3 +579,41 @@ class VoltageData(object):
             return
 
         return [event.__getattribute__(prop_name) for event in self.events]
+
+    def generate_event_table(self):
+        for event in self.events:
+            event_entries = event.entries
+            return pd.concat(event_entries)
+
+    def add_cut(self, interval):
+        pass
+
+
+def update_signal_plot(dataset: VoltageData, signal_plot: pg.PlotItem, voltage_hist: pg.PlotItem):
+    signal_plot.clear()  # This might be unnecessary
+    sample_rate = dataset.data_params.get('sample_rate')
+    baseline = dataset.data_params.get('baseline')
+    threshold = dataset.data_params.get('threshold')
+    data = dataset.processed_data
+    if sample_rate:
+        t = np.arange(0, len(data)) / sample_rate
+        signal_plot.plot(t, data, pen='b')
+    else:
+        signal_plot.plot(data, pen='b')
+    if dataset.events:
+        fits = dataset.event_fits()
+        for x, y in fits:
+            # x = np.concatenate([x, [0]])
+            # y = np.concatenate([y, [0]])
+            if sample_rate:
+                x = x / sample_rate
+            signal_plot.plot(x, y, pen='r')
+    if dataset.file_type != '.abf':
+        signal_plot.addLine(y=baseline, pen='g')
+        signal_plot.addLine(y=threshold, pen='r')
+
+    voltage_hist.clear()
+    aph_y, aph_x = np.histogram(data, bins=1000)
+    aph_hist = pg.PlotCurveItem(aph_x, aph_y, stepMode=True, fillLevel=0, brush='b')
+    voltage_hist.addItem(aph_hist)
+    voltage_hist.setXRange(np.min(data), np.max(data))

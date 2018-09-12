@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1722</width>
-    <height>866</height>
+    <width>1549</width>
+    <height>812</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -557,7 +557,7 @@
             </font>
            </property>
            <property name="text">
-            <string>Low Pass Filter (kHz)</string>
+            <string>Low Pass Filter (Hz)</string>
            </property>
           </widget>
          </item>
@@ -2176,8 +2176,8 @@ border-color: rgb(0, 0, 0);</string>
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1722</width>
-     <height>21</height>
+     <width>1549</width>
+     <height>20</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">

@@ -1,15 +1,12 @@
 import math
-from typing import List, Tuple, Iterable, Optional
+import os
+from typing import List, Tuple
 
-from numpy.core.multiarray import ndarray
-
-from PythIon.Utility import load_log_file, Event, analyze
-
-from scipy import signal
-from scipy import io as spio
 import numpy as np
-from numpy import array
 import pandas as pd
+
+from PythIon.Utility import running_stats, Event, VoltageData
+from PythIon.SetupUtilities import load_log_file
 
 
 # Recursive function that will detect events and output a nested data structure
@@ -97,7 +94,7 @@ def cusum(data, base_sd, output_sample_rate, baseline=None,
     if level == 0:
         return events
     else:
-        return Event(data, anchor, n, baseline, output_sample_rate, events)
+        return Event(data, anchor, n, baseline, output_sample_rate)
 
 
 def correct_cusum(x, delta, h):
@@ -148,10 +145,10 @@ def correct_cusum(x, delta, h):
             neg_cumulative_sums = [cum_sum[0] for cum_sum in cumulative_sums[k0:]]
             pos_cumulative_sums = [cum_sum[1] for cum_sum in cumulative_sums[k0:]]
             kmin = np.argmin(neg_cumulative_sums)
-            krmv.append(kmin + k0 - 1)
+            krmv.append(kmin + k0)
             if decision_values[k][1] > h:
                 kmin = np.argmin(pos_cumulative_sums)
-                krmv[detection_number] = kmin + k0 - 1
+                krmv[detection_number] = kmin + k0
             detection_number = detection_number + 1
 
             # algorithm reinitialization
@@ -191,14 +188,18 @@ def correct_cusum(x, delta, h):
 
 if __name__ == "__main__":
     # Mat file is matlab data. Should be in a more portable format (JSON?)  Was changed to info_file_name
-    info_file_name = r"C:\Users\Noah PC\PycharmProjects\Pyth-Ion\PythIon\Sample Data\3500bp-200mV.mat"
-    data_file_name = r"C:\Users\Noah PC\PycharmProjects\Pyth-Ion\PythIon\Sample Data\3500bp-200mV.log"
-    lp_filter_cutoff = 100000
+    file_name = '3500bp-200mV'
+    working_dir = r"C:\Users\Noah PC\PycharmProjects\Pyth-Ion\PythIon\Sample Data"
+    data_path = os.path.join(working_dir, file_name) + '.log'
+    dataset = VoltageData(data_path)
+    low_pass_cutoff = 7500
+    dataset.process_data(low_pass_cutoff)
+    dataset.detect_events()
+
     out_sample_rate = 4166670
     threshold = 0.3e-9
-    data, sample_rate = load_log_file(info_file_name, data_file_name, lp_filter_cutoff, out_sample_rate)
+    data, sample_rate = load_log_file(file_name, working_dir)
     data = data[20:-20]  # Removing weird spikes from data
-    small_data = data[:int(1e6)]  # First million points contain one event
     correct_test = correct_cusum(data[:12000000], 3e-10, 1e-10)
     # base_sd = np.std(data[:200000])
     # baseline = np.mean(data)
