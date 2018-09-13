@@ -21,8 +21,8 @@ def load_log_file(file_name, data_directory):
         data = raw_data[0]  # Retrurns the list to a single level: [[data]] -> [data]
         return data
 
-    data_file_name = '\\'.join([data_directory, file_name + '.log'])
-    info_file_name = '\\'.join([data_directory, file_name + '.mat'])
+    data_file_name = os.path.join(data_directory, file_name + '.log')
+    info_file_name = os.path.join(data_directory, file_name + '.mat')
 
     mat = spio.loadmat(info_file_name)
     # ADC is analog to digital converter
@@ -49,7 +49,7 @@ def load_log_file(file_name, data_directory):
 
 
 def load_opt_file(file_name, working_dir=os.getcwd()):
-    data_file_name = '\\'.join([working_dir, file_name + '.opt'])
+    data_file_name = os.path.join(working_dir, file_name + '.opt')
     data = np.fromfile(data_file_name, dtype=np.dtype('>d'))
     # mat_path = '//'.join([data_directory, file_name])
     # if file_name + '_inf.mat' in os.listdir(data_directory):
@@ -97,7 +97,7 @@ def load_opt_file(file_name, working_dir=os.getcwd()):
 
 
 def load_txt_file(file_name, working_dir=os.getcwd()):
-    data_file_name = '\\'.join([working_dir, file_name + 'txt'])
+    data_file_name = os.path.join(working_dir, file_name + 'txt')
     data = pandas.io.parsers.read_csv(data_file_name, skiprows=1)
     # data = np.reshape(np.array(data),np.size(data))*10**9
     data = np.reshape(np.array(data), np.size(data))
@@ -106,7 +106,7 @@ def load_txt_file(file_name, working_dir=os.getcwd()):
 
 
 def load_npy_file(file_name, working_dir=os.getcwd()):
-    data_file_name = '\\'.join([working_dir, file_name + 'txt'])
+    data_file_name = os.path.join(working_dir, file_name + 'txt')
     data = np.load(data_file_name)
     data_params = {}
     return data, data_params
@@ -114,7 +114,7 @@ def load_npy_file(file_name, working_dir=os.getcwd()):
 
 def load_abf_file(file_name, working_dir=os.getcwd()):
     abf_header_size = 6144
-    data_file_name = '\\'.join([working_dir, file_name + 'txt'])
+    data_file_name = os.path.join(working_dir, file_name + 'txt')
     f = open(data_file_name, "rb")  # reopen the file
     f.seek(abf_header_size, os.SEEK_SET)
     data = np.fromfile(f, dtype=np.dtype('<i2'))
