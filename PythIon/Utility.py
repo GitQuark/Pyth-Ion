@@ -8,6 +8,7 @@ import pandas as pd
 import pyqtgraph as pg
 
 # from PythIon.plotguiuniversal import *
+from qtpy import QtWidgets
 from scipy import signal
 
 from PythIon import EdgeDetect
@@ -121,26 +122,9 @@ def save_batch_info(events, batch_info, info_file_name):
     return batch_info
 
 
-def save_cat_data(data, events, ui, info_file_name):
-    event_buffer = np.int(ui.eventbufferentry.text())
-    baseline = events[0].baseline
-    cat_data = np.array([])
-    cat_fits = np.array([])
-    # NOTE: Below was changed from idx in range(num_events - 1) due to assumed off-by-one error
-    # Section with similar code was changed as well
-    for idx, event in enumerate(events[:-1]):
-        adj_start = event.start - event_buffer
-        adj_end = event.end + event_buffer
-        if adj_end > events[idx + 1].start:
-            print('overlapping event')
-            continue
-        data_pts = data[adj_start: adj_end]
-        event_pts = generate_event_pts(adj_start, adj_end, event_buffer, baseline, event.delta)
-        cat_data = np.concatenate((cat_data, data_pts), 0)
-        cat_fits = np.concatenate((cat_fits, event_pts), 0)
-
-    # cat_data = cat_data[::10]
-    cat_data.astype('d').tofile(info_file_name + '_cattrace.bin')
+def save_cat_data(dataset, file_name):
+    with open(file_name, 'w') as file:
+        file.write()
 
 
 def update_histograms(sdf, ui, events, w2, w3, w4, w5):
@@ -496,8 +480,17 @@ class Event(object):
         return np.array(x), np.array(y)
 
     def generate_level_entries(self):
-        for interval in self.intervals:
-            pass
+        data_list = []
+        event_length = self.end - self.start
+        for idx, interval in enumerate(self.intervals):
+            data_list.append({
+                'start': (self.start + interval[0]) / self.sample_rate,
+                'end': (self.start + interval[1]) / self.sample_rate,
+                'voltage_change': self.levels[idx] - self.baseline,
+                'frac': (interval[1] - interval[0]) / event_length,
+                'duration': (interval[1] - interval[0]) / self.sample_rate
+            })
+        return data_list
 
 
 class VoltageData(object):
@@ -581,9 +574,13 @@ class VoltageData(object):
         return [event.__getattribute__(prop_name) for event in self.events]
 
     def generate_event_table(self):
-        for event in self.events:
-            event_entries = event.entries
-            return pd.concat(event_entries)
+        event_data_list = []
+        for idx, event in enumerate(self.events):
+            event_entries = event.generate_level_entries()
+            for entry in event_entries:
+                entry['event_number'] = idx
+                event_data_list.append(entry)
+        return pd.DataFrame(event_data_list)
 
     def add_cut(self, interval):
         pass

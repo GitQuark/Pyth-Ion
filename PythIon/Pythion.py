@@ -134,7 +134,7 @@ class GUIForm(QtWidgets.QMainWindow):
     def save(self):
         dataset = self.dataset
         event_table = dataset.generate_event_table()
-        header_names = '\t'.join(["deli", "frac", "dwell", "dt", 'stdev'])
+        header_names = '\t'.join(['start', 'end', 'delta', 'frac', 'duration', 'event_number'])
         np.savetxt(dataset.file_name + '_EventData.txt', event_table, delimiter='\t', header=header_names)
 
     # Called by Go button
@@ -559,14 +559,18 @@ Allows user to select region of data to be removed
             self.cut_region.hide()
 
     def save_cat_trace(self):
-        if self.data is None:
+        if self.dataset is None:
             return
-        save_cat_data(self.data, self.events, self.ui, self.mat_file_name)
+        print('This function is not currently in use')
 
     def save_event_fits(self):
-        if self.data is None:
+        if self.dataset is None:
             return
-        save_cat_data(self.data, self.events, self.ui, self.mat_file_name)
+        default_file_name = os.path.join(os.getcwd(), 'event_data.csv')
+        file_name, _ = QtWidgets.QFileDialog.getSaveFileName(self, 'Save Event Data', default_file_name, '*.csv')
+        event_data = self.dataset.generate_event_table()
+        column_order = ('event_number', 'start', 'end', 'duration', 'frac', 'voltage_change')
+        event_data.loc[:, column_order].to_csv(file_name, index=False)
 
     def cusum(self):
         ui = self.ui
