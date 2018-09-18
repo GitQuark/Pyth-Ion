@@ -279,7 +279,7 @@ def load_logo():
     return logo
 
 
-def setup_voltage_hist(ui, logo):
+def setup_current_hist(ui, logo):
     p3 = ui.eventplot.addPlot()
     p3.hideAxis('bottom')
     p3.hideAxis('left')

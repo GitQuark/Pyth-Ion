@@ -486,14 +486,14 @@ class Event(object):
             data_list.append({
                 'start': (self.start + interval[0]) / self.sample_rate,
                 'end': (self.start + interval[1]) / self.sample_rate,
-                'voltage_change': self.levels[idx] - self.baseline,
+                'current_level': self.levels[idx],
                 'frac': (interval[1] - interval[0]) / event_length,
                 'duration': (interval[1] - interval[0]) / self.sample_rate
             })
         return data_list
 
 
-class VoltageData(object):
+class CurrentData(object):
     data_params: dict
     events: List[Event]
 
@@ -586,7 +586,7 @@ class VoltageData(object):
         pass
 
 
-def update_signal_plot(dataset: VoltageData, signal_plot: pg.PlotItem, voltage_hist: pg.PlotItem):
+def update_signal_plot(dataset: CurrentData, signal_plot: pg.PlotItem, current_hist: pg.PlotItem):
     signal_plot.clear()  # This might be unnecessary
     sample_rate = dataset.data_params.get('sample_rate')
     baseline = dataset.data_params.get('baseline')
@@ -609,8 +609,8 @@ def update_signal_plot(dataset: VoltageData, signal_plot: pg.PlotItem, voltage_h
         signal_plot.addLine(y=baseline, pen='g')
         signal_plot.addLine(y=threshold, pen='r')
 
-    voltage_hist.clear()
+    current_hist.clear()
     aph_y, aph_x = np.histogram(data, bins=1000)
     aph_hist = pg.PlotCurveItem(aph_x, aph_y, stepMode=True, fillLevel=0, brush='b')
-    voltage_hist.addItem(aph_hist)
-    voltage_hist.setXRange(np.min(data), np.max(data))
+    current_hist.addItem(aph_hist)
+    current_hist.setXRange(np.min(data), np.max(data))

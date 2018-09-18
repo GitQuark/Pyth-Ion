@@ -14,7 +14,7 @@ from PythIon.Widgets.PlotGUI import *
 
 
 class GUIForm(QtWidgets.QMainWindow):
-    dataset: VoltageData
+    dataset: CurrentData
     events: List[Event]
 
     # Setup GUI and draw elements from UI file
@@ -30,7 +30,7 @@ class GUIForm(QtWidgets.QMainWindow):
         self.cb = setup_cb(self.ui)
         self.w2, self.w3, self.w4, self.w5 = setup_plots(self)
         self.logo = load_logo()
-        self.voltage_hist = setup_voltage_hist(self.ui, self.logo)
+        self.current_hist = setup_current_hist(self.ui, self.logo)
 
         # Initializing various variables used for analysis
         self.data_file_name = None
@@ -65,10 +65,10 @@ class GUIForm(QtWidgets.QMainWindow):
         data_file_name = self.data_file_name
         if not data_file_name:
             return
-        self.voltage_hist.clear()
-        self.voltage_hist.setLabel('bottom', text='Current', units='A', unitprefix='n')
-        self.voltage_hist.setLabel('left', text='', units='Counts')
-        self.voltage_hist.setAspectLocked(False)
+        self.current_hist.clear()
+        self.current_hist.setLabel('bottom', text='Current', units='A', unitprefix='n')
+        self.current_hist.setLabel('left', text='', units='Counts')
+        self.current_hist.setAspectLocked(False)
 
         colors = np.array(sdf.color)
         for i in range(len(colors)):
@@ -89,7 +89,7 @@ class GUIForm(QtWidgets.QMainWindow):
         print(data_file_name)
         low_pass_cutoff = float(ui.LPentry.text())  # In Hz
         # use integer multiples of 4166.67 ie 2083.33 or 1041.67
-        self.dataset = VoltageData(data_file_name)
+        self.dataset = CurrentData(data_file_name)
 
         baseline = self.dataset.data_params.get('baseline')
         ui.eventcounterlabel.setText('Baseline=' + str(round(baseline * BILLION, 2)) + ' nA')
@@ -97,7 +97,7 @@ class GUIForm(QtWidgets.QMainWindow):
         if self.dataset.file_type in ('.log', '.abf', '.opt'):
             self.dataset.processed_data(low_pass_cutoff)
 
-        update_signal_plot(self.dataset, self.signal_plot, self.voltage_hist)
+        update_signal_plot(self.dataset, self.signal_plot, self.current_hist)
         self.signal_plot.autoRange()
         self.threshold = threshold
     #        if self.v != []:
@@ -129,7 +129,7 @@ class GUIForm(QtWidgets.QMainWindow):
         self.clear_w_plots()
         threshold = np.float64(self.ui.thresholdentry.text()) * 1e-9  # Now in number of standard deviations
         dataset.detect_events(threshold)
-        update_signal_plot(dataset, self.signal_plot, self.voltage_hist)
+        update_signal_plot(dataset, self.signal_plot, self.current_hist)
 
     def save(self):
         dataset = self.dataset
@@ -151,7 +151,7 @@ class GUIForm(QtWidgets.QMainWindow):
         ui = self.ui
         data = self.data
         p2 = self.event_plot
-        p3 = self.voltage_hist
+        p3 = self.current_hist
         t = self.t
         mat_file_name = self.mat_file_name
 
@@ -254,7 +254,7 @@ class GUIForm(QtWidgets.QMainWindow):
             return
         low_pass_cutoff = int(self.ui.LPentry.text())
         self.dataset.process_data(low_pass_cutoff)
-        update_signal_plot(self.dataset, self.signal_plot, self.voltage_hist)
+        update_signal_plot(self.dataset, self.signal_plot, self.current_hist)
 
     def next_event(self):
         element = self.ui.eventnumberentry
@@ -287,7 +287,7 @@ Allows user to select region of data to be removed
         # first check to see if cutting
         cut_region = self.cut_region
         signal_plot = self.signal_plot
-        voltage_hist = self.voltage_hist
+        voltage_hist = self.current_hist
 
         if cut_region.isVisible():
             # If cut region has been set, cut region and replot remaining data
@@ -298,7 +298,8 @@ Allows user to select region of data to be removed
             sample_rate = self.dataset.data_params.get('sample_rate')
             interval = (int(left_bound * sample_rate), int(right_bound * sample_rate) + 1)
             dataset.add_cut(interval)
-            dataset.process_data()
+            included_pts = np.r_[0:interval[0], interval[1]:len(dataset.processed_data)]
+            dataset.processed_data = dataset.processed_data[included_pts]
 
             update_signal_plot(dataset, signal_plot, voltage_hist)
             # aph_y, aph_x = np.histogram(data, bins = len(data)/1000)
@@ -346,12 +347,12 @@ Allows user to select region of data to be removed
         ui = self.ui
         sample_rate = self.dataset.data_params.get('sample_rate')
 
-        self.signal_plot.clear()
         if base_region.isVisible():
             left_bound, right_bound = base_region.getRegion()
             start, end = (int(max(left_bound, 0) * sample_rate), int(right_bound * sample_rate))
             baseline = np.mean(dataset.processed_data[start: end])
-            update_signal_plot(dataset, self.signal_plot, self.voltage_plot)
+            dataset.data_params['baseline'] = baseline
+            update_signal_plot(dataset, self.signal_plot, self.current_hist)
             base_region.hide()
 
             baseline_text = 'Baseline=' + str(round(baseline * BILLION, 2)) + ' nA'
@@ -360,8 +361,8 @@ Allows user to select region of data to be removed
         else:
             # base_region = pg.LinearRegionItem()  # PyQtgraph object for selecting a region
             # base_region.hide()
+            # update_signal_plot(dataset, self.signal_plot, self.current_hist)
             self.signal_plot.addItem(base_region)
-            update_signal_plot(dataset, self.signal_plot, self.voltage_plot)
             base_region.show()
         self.base_region = base_region
 
@@ -419,7 +420,7 @@ Allows user to select region of data to be removed
             self.dataset.data_params['inverted'] = True
         else:
             return
-        update_signal_plot(self.dataset, self.signal_plot)
+        update_signal_plot(self.dataset, self.signal_plot, self.current_hist)
 
     def clear_w_plots(self):
         self.w2.clear()

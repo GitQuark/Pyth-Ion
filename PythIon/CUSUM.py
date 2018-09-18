@@ -5,7 +5,7 @@ from typing import List, Tuple
 import numpy as np
 import pandas as pd
 
-from PythIon.Utility import running_stats, Event, VoltageData
+from PythIon.Utility import running_stats, Event, CurrentData
 from PythIon.SetupUtilities import load_log_file
 
 
@@ -191,7 +191,7 @@ if __name__ == "__main__":
     file_name = '3500bp-200mV'
     working_dir = r"C:\Users\Noah PC\PycharmProjects\Pyth-Ion\PythIon\Sample Data"
     data_path = os.path.join(working_dir, file_name) + '.log'
-    dataset = VoltageData(data_path)
+    dataset = CurrentData(data_path)
     low_pass_cutoff = 7500
     dataset.process_data(low_pass_cutoff)
     dataset.detect_events()
