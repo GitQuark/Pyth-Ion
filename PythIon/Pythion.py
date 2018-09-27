@@ -417,7 +417,9 @@ Allows user to select region of data to be removed
 
     def invert_data(self):
         if self.dataset:
-            self.dataset.data_params['inverted'] = True
+            self.dataset.data_params['inverted'] = not self.dataset.data_params.get('inverted')
+            self.dataset.processed_data = -self.dataset.processed_data
+            # self.dataset.data_params['baseline'] = not self.dataset.data_params.get('baseline')
         else:
             return
         update_signal_plot(self.dataset, self.signal_plot, self.current_hist)
@@ -569,6 +571,8 @@ Allows user to select region of data to be removed
             return
         default_file_name = os.path.join(os.getcwd(), 'event_data.csv')
         file_name, _ = QtWidgets.QFileDialog.getSaveFileName(self, 'Save Event Data', default_file_name, '*.csv')
+        if file_name == '':
+            return
         event_data = self.dataset.generate_event_table()
         column_order = ('event_number', 'start', 'end', 'duration', 'frac', 'voltage_change')
         event_data.loc[:, column_order].to_csv(file_name, index=False)

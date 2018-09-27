@@ -530,14 +530,22 @@ class CurrentData(object):
 
     def process_data(self, low_pass_cutoff=None):
         self.processed_data = self.data
+
         if self.data_params.get('inverted'):
             self.processed_data = -self.processed_data
-            self.data_params['baseline'] = -self.data_params.get('baseline')
 
-        for cut in self.cuts:
-            # No effort to figure out an 'abosute position of the cuts'
-            cut_start, cut_end = cut
-            self.processed_data = self.processed_data[cut_start: cut_end]
+        if self.cuts:
+            slice_list = [slice(0, self.cuts[0][0])]  # Initial interval of included points
+            for idx, cut in enumerate(self.cuts[1:-1]):
+                # TODO: Make more efficient
+                # No effort to figure out an 'abosute position of the cuts
+                _, include_start = cut
+                # one increment for first cut being skipped, the other for acessing next cut
+                include_end, _ = self.cuts[idx + 1 + 1]
+                slice_list.append(slice(include_start, include_end))
+            slice_list.append(slice(self.cuts[-1][1], len(self.data)))
+            included_pts = np.r_[slice_list]
+            self.processed_data = self.processed_data[included_pts]
 
         if not low_pass_cutoff:
             low_pass_cutoff = self.data_params.get('low_pass_cutoff')
@@ -583,7 +591,35 @@ class CurrentData(object):
         return pd.DataFrame(event_data_list)
 
     def add_cut(self, interval):
-        pass
+        start, end = interval
+        print(interval)
+        new_cuts = []
+        insert_point_found = False
+        self.cuts.reverse()
+        while self.cuts:
+            cut_start, cut_end = self.cuts.pop()
+            print(cut_start, cut_end)
+            offset = cut_end - cut_start
+            if cut_start < start:
+                start += offset
+                end += offset
+                new_cuts.append((cut_start, cut_end))
+            elif start < cut_start < end:
+                end += offset
+                while self.cuts and start < self.cuts[-1][0] < end:
+                    cut = self.cuts.pop()
+                    offset = cut[1] - cut[0]
+                    end += offset
+                new_cuts.append((start, end))
+                insert_point_found = True
+            else:  # cut is interiely after new cut
+                if not insert_point_found:
+                    new_cuts.append((start, end))
+                    insert_point_found = True
+                new_cuts.append((cut_start, cut_end))
+        if not insert_point_found:
+            new_cuts.append((start, end))
+        self.cuts = new_cuts
 
 
 def update_signal_plot(dataset: CurrentData, signal_plot: pg.PlotItem, current_hist: pg.PlotItem):
