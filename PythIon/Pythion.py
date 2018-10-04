@@ -113,112 +113,67 @@ class GUIForm(QtWidgets.QMainWindow):
     def inspect_event(self, clicked=None):
         if clicked is None:
             clicked = []
-        events = self.events
-        if not events:
+        if not self.dataset.events:
             return
-        num_events = len(events)
+
+        events = self.dataset.events
+        sample_rate = self.dataset.data_params.get('sample_rate')
+        num_events = len(self.dataset.events)
         baseline = events[0].baseline
-        sdf = self.sdf
+
         ui = self.ui
-        data = self.data
-        p2 = self.event_plot
-        p3 = self.current_hist
-        t = self.t
-        mat_file_name = self.mat_file_name
+        event_plot = self.event_plot
+        current_hist = self.current_hist
 
         # Reset plot
-        p3.setLabel('bottom', text='Time', units='s')
-        p3.setLabel('left', text='Current', units='A')
-        p3.clear()
+        current_hist.setLabel('bottom', text='Time', units='s')
+        current_hist.setLabel('left', text='Current', units='A')
+        current_hist.clear()
 
         # Correct for user error if non-extistent number is entered
         event_buffer = num_from_text_element(ui.event_buffer_entry, default=1000)
-        first_index = sdf.fn[sdf.fn == mat_file_name].index[0]
+        # first_index = sdf.fn[sdf.fn == mat_file_name].index[0]
         if not clicked:
-            event_number = int(ui.event_number_entry.text())
-        else:
-            # noinspection PyUnresolvedReferences
-            event_number = clicked - first_index
+            event_number = num_from_text_element(ui.event_number_entry, 1, len(events))
             ui.event_number_entry.setText(str(event_number))
-        if event_number >= num_events:
-            event_number = num_events - 1
+            event_number -= 1
+        else:
+            event_number = clicked
             ui.event_number_entry.setText(str(event_number))
 
         # plot event trace
         event = events[event_number]
+        # Just use main plot and set the view to focus on single event
         adj_start = int(event.start - event_buffer)
         adj_end = int(event.end + event_buffer)
-        p3.plot(t[adj_start:adj_end], data[adj_start:adj_end], pen='b')
+        self.signal_plot.setXRange(adj_start / sample_rate, adj_end / sample_rate)
+        self.signal_plot.setYRange(min(event.data), max(event.data), padding=0.1)
+        # current_hist.plot(t[adj_start:adj_end], data[adj_start:adj_end], pen='b')
 
-        event_fit = np.concatenate((
-            np.repeat(np.array([baseline]), event_buffer),
-            np.repeat(np.array([baseline - event.delta]), data[event.start] - data[event.end]),
-            np.repeat(np.array([baseline]), event_buffer)), 0)
-        # plot event fit
-        p3.plot(t[adj_start:adj_end], event_fit, pen=pg.mkPen(color=(173, 27, 183), width=3))
-        p3.autoRange()
+        # event_fit = event.piecewise_fit()
+        # p3.plot(t[adj_start:adj_end], event_fit, pen=pg.mkPen(color=(173, 27, 183), width=3))
+        # p3.autoRange()
 
         # Mark event that is being viewed on scatter plot
 
-        colors = np.array(sdf.color)
-        for i in range(len(colors)):
-            colors[i] = pg.Color(colors[i])
-        colors[first_index + event_number] = pg.mkColor('r')
-
-        p2.setBrush(colors, mask=None)
+        # colors = np.array(sdf.color)
+        # for i in range(len(colors)):
+        #     colors[i] = pg.Color(colors[i])
+        # colors[first_index + event_number] = pg.mkColor('r')
+        #
+        # p2.setBrush(colors, mask=None)
 
         # Mark event start and end points
-        p3.plot([t[event.start], t[event.start]],
-                [data[event.start], data[event.start]], pen=None,
-                symbol='o', symbolBrush='g', symbolSize=12)
-        p3.plot([t[event.end], t[event.end]],
-                [data[event.end], data[event.end]], pen=None,
-                symbol='o', symbolBrush='r', symbolSize=12)
+        # p3.plot([t[event.start], t[event.start]],
+        #         [data[event.start], data[event.start]], pen=None,
+        #         symbol='o', symbolBrush='g', symbolSize=12)
+        # p3.plot([t[event.end], t[event.end]],
+        #         [data[event.end], data[event.end]], pen=None,
+        #         symbol='o', symbolBrush='r', symbolSize=12)
 
-        duration = round(event.duration, 2)
-        delta = round(event.delta * BILLION, 2)
-        # ui.eventinfolabel.setText('Dwell Time=' + str(duration) + u' μs,   Deli=' + str(delta) + ' nA')
-
-    #        if ui.cusumstepentry.text() != 'None':
-    #
-    #
-    #
-    #            x=data[startpoints[eventnumber]-eventbuffer:endpoints[eventnumber]+eventbuffer]
-    #            mins=signal.argrelmin(x)[0]
-    #            drift=.0
-    #            fitthreshold = np.float64(ui.cusumstepentry.text())
-    #            eventfit=np.array((0))
-    #
-    #            gp, gn = np.zeros(x.size), np.zeros(x.size)
-    #            ta, tai, taf = np.array([[], [], []], dtype=int)
-    #            tap, tan = 0, 0
-    #            # Find changes (online form)
-    #            for i in range(mins[0], mins[-1]):
-    #                s = x[i] - x[i-1]
-    #                gp[i] = gp[i-1] + s - drift  # cumulative sum for + change
-    #                gn[i] = gn[i-1] - s - drift  # cumulative sum for - change
-    #                if gp[i] < 0:
-    #                    gp[i], tap = 0, i
-    #                if gn[i] < 0:
-    #                    gn[i], tan = 0, i
-    #                if gp[i] > fitthreshold or gn[i] > fitthreshold:  # change detected!
-    #                    ta = np.append(ta, i)    # alarm index
-    #                    tai = np.append(tai, tap if gp[i] > fitthreshold else tan)  # start
-    #                    gp[i], gn[i] = 0, 0      # reset alarm
-    #
-    #            eventfit=np.repeat(np.array(baseline),ta[0])
-    #            for i in range(1,ta.size):
-    #                eventfit=np.concatenate((eventfit,np.repeat(np.array(np.mean(x[ta[i-1]:ta[i]])),ta[i]-ta[i-1])))
-    #            eventfit=np.concatenate((eventfit,np.repeat(np.array(baseline),x.size-ta[-1])))
-    #            p3.plot(t[startpoints[eventnumber]-eventbuffer:endpoints[eventnumber]+eventbuffer],eventfit
-    #                ,pen=pg.mkPen(color=(255,255,0),width=3))
-    #    #        pg.plot(eventfit)
-    #
-    #
-    #            p3.plot(t[ta+startpoints[eventnumber]-eventbuffer],x[ta],pen=None,symbol='o',symbolBrush='m',symbolSize=8)
-    #
-    #
-    #
+        # duration = round(event.intervals, 2)
+        # level = round(event.levels * BILLION, 2)
+        # ui.status_bar.showMessage('Dwell Time=' + str(duration) + u' μs,   Deli=' + str(level) + ' nA')
 
     def replot(self):
         if not self.dataset:
@@ -230,23 +185,23 @@ class GUIForm(QtWidgets.QMainWindow):
         update_signal_plot(self.dataset, self.signal_plot, self.current_hist)
 
     def next_event(self):
-        element = self.ui.event_number_entry
-        num_events = len(self.events)
         # Ignore command if there are no events
-        if not self.events:
+        if not self.dataset.events:
             return
+        element = self.ui.event_number_entry
+        num_events = len(self.dataset.events)
         input_num = num_from_text_element(element, 1, num_events, default=1)
-        element.setText(str(input_num + 1))
+        element.setText(str(min(input_num + 1, num_events)))
         self.inspect_event()
 
     def previous_event(self):
-        element = self.ui.event_number_entry
-        num_events = len(self.events)
         # Ignore command if there are no events
-        if not self.events:
+        if not self.dataset.events:
             return
+        element = self.ui.event_number_entry
+        num_events = len(self.dataset.events)
         input_num = num_from_text_element(element, 1, num_events, default=1)
-        element.setText(str(input_num - 1))
+        element.setText(str(max(input_num - 1, 1)))
         self.inspect_event()
 
     def cut(self):
@@ -316,7 +271,7 @@ class GUIForm(QtWidgets.QMainWindow):
                                          'dwell', 'dt', 'startpoints', 'endpoints'])
 
     def delete_event(self):
-        events = self.events
+        events = self.dataset.events
         if not events:
             return
         deltas = [event.delta for event in events]
@@ -386,13 +341,12 @@ class GUIForm(QtWidgets.QMainWindow):
 
     def next_file(self):
         file_type = self.file_type
-        mat_file_name = self.mat_file_name
         if file_type == '.log':
             log_offset = 6
-            next_file_name = get_file(file_type, log_offset, "next", mat_file_name)
+            next_file_name = get_file(file_type, log_offset, "next", self.data_file_name)
         elif file_type == '.abf':
             abf_offset = 4
-            next_file_name = get_file(file_type, abf_offset, "next", mat_file_name)
+            next_file_name = get_file(file_type, abf_offset, "next", self.data_file_name)
         else:
             return
         self.data_file_name = next_file_name
@@ -400,13 +354,12 @@ class GUIForm(QtWidgets.QMainWindow):
 
     def previous_file(self):
         file_type = self.file_type
-        mat_file_name = self.mat_file_name
         if file_type == '.log':
             log_offset = 6
-            next_file_name = get_file(file_type, log_offset, "prev", mat_file_name)
+            next_file_name = get_file(file_type, log_offset, "prev", self.data_file_name)
         elif file_type == '.abf':
             abf_offset = 4
-            next_file_name = get_file(file_type, abf_offset, "prev", mat_file_name)
+            next_file_name = get_file(file_type, abf_offset, "prev", self.data_file_name)
         else:
             return
         self.data_file_name = next_file_name

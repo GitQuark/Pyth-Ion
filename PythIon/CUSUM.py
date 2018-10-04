@@ -194,7 +194,7 @@ if __name__ == "__main__":
     dataset = CurrentData(data_path)
     low_pass_cutoff = 7500
     dataset.process_data(low_pass_cutoff)
-    dataset.detect_events()
+    dataset.detect_events(0.3)
 
     out_sample_rate = 4166670
     threshold = 0.3e-9

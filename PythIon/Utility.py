@@ -480,7 +480,7 @@ class Event(object):
             level = self.levels[idx]
             fit_points.append((start + offset, level))
             fit_points.append((end + offset, level))
-        fit_points.append((offset + len(self.data) - 1, self.data[-1]))
+        fit_points.append((self.end, self.data[-1]))
         fit_points.append(fit_points[-1])  # Added since pyqtgraph does not display the last line for some reason
         x, y = zip(*fit_points)
         return np.array(x), np.array(y)
