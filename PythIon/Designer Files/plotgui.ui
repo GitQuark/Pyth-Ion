@@ -99,8 +99,8 @@
          <property name="bottomMargin">
           <number>5</number>
          </property>
-         <item row="0" column="0">
-          <widget class="QPushButton" name="loadbutton">
+         <item row="1" column="0">
+          <widget class="QPushButton" name="load_button">
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
              <horstretch>0</horstretch>
@@ -138,164 +138,8 @@
            </property>
           </widget>
          </item>
-         <item row="0" column="1">
-          <widget class="QPushButton" name="cutbutton">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="minimumSize">
-            <size>
-             <width>70</width>
-             <height>5</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>16777215</width>
-             <height>16777215</height>
-            </size>
-           </property>
-           <property name="font">
-            <font>
-             <family>Arial</family>
-             <pointsize>9</pointsize>
-             <weight>50</weight>
-             <bold>false</bold>
-            </font>
-           </property>
-           <property name="layoutDirection">
-            <enum>Qt::LeftToRight</enum>
-           </property>
-           <property name="autoFillBackground">
-            <bool>false</bool>
-           </property>
-           <property name="text">
-            <string>CUT</string>
-           </property>
-          </widget>
-         </item>
-         <item row="2" column="1">
-          <widget class="QPushButton" name="analyzebutton">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="minimumSize">
-            <size>
-             <width>70</width>
-             <height>0</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>16777215</width>
-             <height>16777215</height>
-            </size>
-           </property>
-           <property name="font">
-            <font>
-             <family>Arial</family>
-             <pointsize>9</pointsize>
-             <weight>50</weight>
-             <bold>false</bold>
-            </font>
-           </property>
-           <property name="layoutDirection">
-            <enum>Qt::LeftToRight</enum>
-           </property>
-           <property name="autoFillBackground">
-            <bool>false</bool>
-           </property>
-           <property name="text">
-            <string>ANALYZE</string>
-           </property>
-          </widget>
-         </item>
-         <item row="1" column="1">
-          <widget class="QPushButton" name="baselinebutton">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="minimumSize">
-            <size>
-             <width>70</width>
-             <height>0</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>16777215</width>
-             <height>16777215</height>
-            </size>
-           </property>
-           <property name="font">
-            <font>
-             <family>Arial</family>
-             <pointsize>9</pointsize>
-             <weight>50</weight>
-             <bold>false</bold>
-            </font>
-           </property>
-           <property name="layoutDirection">
-            <enum>Qt::LeftToRight</enum>
-           </property>
-           <property name="autoFillBackground">
-            <bool>false</bool>
-           </property>
-           <property name="text">
-            <string>BASELINE</string>
-           </property>
-          </widget>
-         </item>
-         <item row="1" column="0">
-          <widget class="QPushButton" name="nextfilebutton">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="minimumSize">
-            <size>
-             <width>70</width>
-             <height>0</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>16777215</width>
-             <height>16777215</height>
-            </size>
-           </property>
-           <property name="font">
-            <font>
-             <family>Arial</family>
-             <pointsize>9</pointsize>
-             <weight>50</weight>
-             <bold>false</bold>
-            </font>
-           </property>
-           <property name="layoutDirection">
-            <enum>Qt::LeftToRight</enum>
-           </property>
-           <property name="autoFillBackground">
-            <bool>false</bool>
-           </property>
-           <property name="text">
-            <string>NEXT</string>
-           </property>
-          </widget>
-         </item>
-         <item row="2" column="0">
-          <widget class="QPushButton" name="previousfilebutton">
+         <item row="3" column="0">
+          <widget class="QPushButton" name="previous_file_button">
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
              <horstretch>0</horstretch>
@@ -333,86 +177,8 @@
            </property>
           </widget>
          </item>
-         <item row="3" column="1">
-          <widget class="QPushButton" name="fitbutton">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="minimumSize">
-            <size>
-             <width>70</width>
-             <height>0</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>16777215</width>
-             <height>16777215</height>
-            </size>
-           </property>
-           <property name="font">
-            <font>
-             <family>Arial</family>
-             <pointsize>9</pointsize>
-             <weight>50</weight>
-             <bold>false</bold>
-            </font>
-           </property>
-           <property name="layoutDirection">
-            <enum>Qt::LeftToRight</enum>
-           </property>
-           <property name="autoFillBackground">
-            <bool>false</bool>
-           </property>
-           <property name="text">
-            <string>FIT</string>
-           </property>
-          </widget>
-         </item>
-         <item row="4" column="1">
-          <widget class="QPushButton" name="loaddatabutton">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="minimumSize">
-            <size>
-             <width>70</width>
-             <height>0</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>16777215</width>
-             <height>16777215</height>
-            </size>
-           </property>
-           <property name="font">
-            <font>
-             <family>Arial</family>
-             <pointsize>9</pointsize>
-             <weight>50</weight>
-             <bold>false</bold>
-            </font>
-           </property>
-           <property name="layoutDirection">
-            <enum>Qt::LeftToRight</enum>
-           </property>
-           <property name="autoFillBackground">
-            <bool>false</bool>
-           </property>
-           <property name="text">
-            <string>LOAD DATA</string>
-           </property>
-          </widget>
-         </item>
-         <item row="3" column="0">
-          <widget class="QPushButton" name="invertbutton">
+         <item row="5" column="1">
+          <widget class="QPushButton" name="invert_button">
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
              <horstretch>0</horstretch>
@@ -450,8 +216,86 @@
            </property>
           </widget>
          </item>
-         <item row="4" column="0">
-          <widget class="QPushButton" name="clearscatterbutton">
+         <item row="3" column="1">
+          <widget class="QPushButton" name="next_file_button">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>70</width>
+             <height>0</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>16777215</height>
+            </size>
+           </property>
+           <property name="font">
+            <font>
+             <family>Arial</family>
+             <pointsize>9</pointsize>
+             <weight>50</weight>
+             <bold>false</bold>
+            </font>
+           </property>
+           <property name="layoutDirection">
+            <enum>Qt::LeftToRight</enum>
+           </property>
+           <property name="autoFillBackground">
+            <bool>false</bool>
+           </property>
+           <property name="text">
+            <string>NEXT</string>
+           </property>
+          </widget>
+         </item>
+         <item row="5" column="0">
+          <widget class="QPushButton" name="baseline_button">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>70</width>
+             <height>0</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>16777215</height>
+            </size>
+           </property>
+           <property name="font">
+            <font>
+             <family>Arial</family>
+             <pointsize>9</pointsize>
+             <weight>50</weight>
+             <bold>false</bold>
+            </font>
+           </property>
+           <property name="layoutDirection">
+            <enum>Qt::LeftToRight</enum>
+           </property>
+           <property name="autoFillBackground">
+            <bool>false</bool>
+           </property>
+           <property name="text">
+            <string>BASELINE</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="1">
+          <widget class="QPushButton" name="clear_data_button">
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
              <horstretch>0</horstretch>
@@ -486,6 +330,87 @@
            </property>
            <property name="text">
             <string>CLEAR DATA</string>
+           </property>
+          </widget>
+         </item>
+         <item row="7" column="0">
+          <widget class="QPushButton" name="cut_button">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>70</width>
+             <height>5</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>16777215</height>
+            </size>
+           </property>
+           <property name="font">
+            <font>
+             <family>Arial</family>
+             <pointsize>9</pointsize>
+             <weight>50</weight>
+             <bold>false</bold>
+            </font>
+           </property>
+           <property name="toolTipDuration">
+            <number>-1</number>
+           </property>
+           <property name="layoutDirection">
+            <enum>Qt::LeftToRight</enum>
+           </property>
+           <property name="autoFillBackground">
+            <bool>false</bool>
+           </property>
+           <property name="text">
+            <string>CUT</string>
+           </property>
+          </widget>
+         </item>
+         <item row="7" column="1">
+          <widget class="QPushButton" name="analyze_button">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>70</width>
+             <height>0</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>16777215</height>
+            </size>
+           </property>
+           <property name="font">
+            <font>
+             <family>Arial</family>
+             <pointsize>9</pointsize>
+             <weight>50</weight>
+             <bold>false</bold>
+            </font>
+           </property>
+           <property name="layoutDirection">
+            <enum>Qt::LeftToRight</enum>
+           </property>
+           <property name="autoFillBackground">
+            <bool>false</bool>
+           </property>
+           <property name="text">
+            <string>ANALYZE</string>
            </property>
           </widget>
          </item>
@@ -529,7 +454,7 @@
           <number>5</number>
          </property>
          <item row="0" column="0">
-          <widget class="QLabel" name="label">
+          <widget class="QLabel" name="low_pass_filter_label">
            <property name="sizePolicy">
             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -562,7 +487,7 @@
           </widget>
          </item>
          <item row="0" column="1">
-          <widget class="QLineEdit" name="LPentry">
+          <widget class="QLineEdit" name="low_pass_entry">
            <property name="sizePolicy">
             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -590,7 +515,7 @@
             </font>
            </property>
            <property name="text">
-            <string>100</string>
+            <string>7500</string>
            </property>
            <property name="alignment">
             <set>Qt::AlignCenter</set>
@@ -598,7 +523,7 @@
           </widget>
          </item>
          <item row="1" column="0">
-          <widget class="QLabel" name="label_2">
+          <widget class="QLabel" name="sample_rate_label">
            <property name="sizePolicy">
             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -626,12 +551,12 @@
             </font>
            </property>
            <property name="text">
-            <string>Output Samplerate (kHz)</string>
+            <string>Sample Rate (kHz)</string>
            </property>
           </widget>
          </item>
          <item row="1" column="1">
-          <widget class="QLineEdit" name="outputsamplerateentry">
+          <widget class="QLineEdit" name="sample_rate_entry">
            <property name="sizePolicy">
             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -667,7 +592,7 @@
           </widget>
          </item>
          <item row="2" column="0">
-          <widget class="QLabel" name="label_5">
+          <widget class="QLabel" name="event_buffer_label">
            <property name="sizePolicy">
             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -700,7 +625,7 @@
           </widget>
          </item>
          <item row="2" column="1">
-          <widget class="QLineEdit" name="eventbufferentry">
+          <widget class="QLineEdit" name="event_buffer_entry">
            <property name="sizePolicy">
             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -736,7 +661,7 @@
           </widget>
          </item>
          <item row="3" column="0">
-          <widget class="QLabel" name="label_3">
+          <widget class="QLabel" name="threshold_label">
            <property name="sizePolicy">
             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -769,7 +694,10 @@
           </widget>
          </item>
          <item row="3" column="1">
-          <widget class="QLineEdit" name="thresholdentry">
+          <widget class="QLineEdit" name="threshold_entry">
+           <property name="enabled">
+            <bool>true</bool>
+           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -834,173 +762,8 @@
          <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
         </property>
         <layout class="QGridLayout" name="gridLayout_11">
-         <item row="6" column="0" colspan="2">
-          <widget class="QLabel" name="eventcounterlabel">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="minimumSize">
-            <size>
-             <width>500</width>
-             <height>10</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>3000</width>
-             <height>10</height>
-            </size>
-           </property>
-           <property name="font">
-            <font>
-             <family>Arial</family>
-             <pointsize>10</pointsize>
-             <weight>50</weight>
-             <bold>false</bold>
-            </font>
-           </property>
-           <property name="text">
-            <string/>
-           </property>
-          </widget>
-         </item>
-         <item row="7" column="0" colspan="2">
+         <item row="3" column="0" colspan="2">
           <widget class="QLabel" name="filelabel">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="minimumSize">
-            <size>
-             <width>500</width>
-             <height>10</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>3000</width>
-             <height>10</height>
-            </size>
-           </property>
-           <property name="font">
-            <font>
-             <family>Arial</family>
-             <pointsize>10</pointsize>
-             <weight>50</weight>
-             <bold>false</bold>
-            </font>
-           </property>
-           <property name="text">
-            <string/>
-           </property>
-          </widget>
-         </item>
-         <item row="0" column="0">
-          <widget class="QLabel" name="eventinfolabel">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="minimumSize">
-            <size>
-             <width>500</width>
-             <height>25</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>3000</width>
-             <height>25</height>
-            </size>
-           </property>
-           <property name="font">
-            <font>
-             <family>Arial</family>
-             <pointsize>8</pointsize>
-             <weight>50</weight>
-             <bold>false</bold>
-            </font>
-           </property>
-           <property name="text">
-            <string/>
-           </property>
-          </widget>
-         </item>
-         <item row="4" column="0" colspan="2">
-          <widget class="QLabel" name="meandtlabel">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="minimumSize">
-            <size>
-             <width>500</width>
-             <height>10</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>3000</width>
-             <height>10</height>
-            </size>
-           </property>
-           <property name="font">
-            <font>
-             <family>Arial</family>
-             <pointsize>10</pointsize>
-             <weight>50</weight>
-             <bold>false</bold>
-            </font>
-           </property>
-           <property name="text">
-            <string/>
-           </property>
-          </widget>
-         </item>
-         <item row="1" column="0" colspan="2">
-          <widget class="QLabel" name="meandwelllabel">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="minimumSize">
-            <size>
-             <width>500</width>
-             <height>10</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>3000</width>
-             <height>10</height>
-            </size>
-           </property>
-           <property name="font">
-            <font>
-             <family>Arial</family>
-             <pointsize>10</pointsize>
-             <weight>50</weight>
-             <bold>false</bold>
-            </font>
-           </property>
-           <property name="text">
-            <string/>
-           </property>
-          </widget>
-         </item>
-         <item row="2" column="0">
-          <widget class="QLabel" name="meandelilabel">
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -1089,7 +852,7 @@
                <number>0</number>
               </property>
               <item row="1" column="1">
-               <widget class="QPushButton" name="previousbutton">
+               <widget class="QPushButton" name="previous_event_button">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                   <horstretch>0</horstretch>
@@ -1122,7 +885,7 @@
                </widget>
               </item>
               <item row="1" column="3">
-               <widget class="QPushButton" name="nextbutton">
+               <widget class="QPushButton" name="next_event_button">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                   <horstretch>0</horstretch>
@@ -1155,7 +918,7 @@
                </widget>
               </item>
               <item row="1" column="2" alignment="Qt::AlignHCenter">
-               <widget class="QPushButton" name="gobutton">
+               <widget class="QPushButton" name="go_event_button">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                   <horstretch>0</horstretch>
@@ -1191,7 +954,7 @@
                </widget>
               </item>
               <item row="0" column="3">
-               <widget class="QLineEdit" name="eventnumberentry">
+               <widget class="QLineEdit" name="event_number_entry">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                   <horstretch>0</horstretch>
@@ -1317,7 +1080,7 @@
           <number>5</number>
          </property>
          <item row="0" column="0">
-          <widget class="QPushButton" name="deleteeventbutton">
+          <widget class="QPushButton" name="delete_event_button">
            <property name="sizePolicy">
             <sizepolicy hsizetype="MinimumExpanding" vsizetype="Expanding">
              <horstretch>0</horstretch>
@@ -1350,7 +1113,7 @@
           </widget>
          </item>
          <item row="1" column="0">
-          <widget class="QPushButton" name="concatenatebutton">
+          <widget class="QPushButton" name="concatenate_button">
            <property name="sizePolicy">
             <sizepolicy hsizetype="MinimumExpanding" vsizetype="Expanding">
              <horstretch>0</horstretch>
@@ -1383,73 +1146,7 @@
           </widget>
          </item>
          <item row="2" column="0">
-          <widget class="QPushButton" name="showcatbutton">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="MinimumExpanding" vsizetype="Expanding">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="minimumSize">
-            <size>
-             <width>100</width>
-             <height>20</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>16777215</width>
-             <height>16777215</height>
-            </size>
-           </property>
-           <property name="font">
-            <font>
-             <family>Arial</family>
-             <pointsize>9</pointsize>
-             <weight>50</weight>
-             <bold>false</bold>
-            </font>
-           </property>
-           <property name="text">
-            <string>SHOW CAT. TRACE</string>
-           </property>
-          </widget>
-         </item>
-         <item row="3" column="0">
-          <widget class="QPushButton" name="savecatbutton">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="MinimumExpanding" vsizetype="Expanding">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="minimumSize">
-            <size>
-             <width>100</width>
-             <height>20</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>16777215</width>
-             <height>16777215</height>
-            </size>
-           </property>
-           <property name="font">
-            <font>
-             <family>Arial</family>
-             <pointsize>9</pointsize>
-             <weight>50</weight>
-             <bold>false</bold>
-            </font>
-           </property>
-           <property name="text">
-            <string>SAVE CAT. TRACE</string>
-           </property>
-          </widget>
-         </item>
-         <item row="4" column="0">
-          <widget class="QPushButton" name="savefitsbutton">
+          <widget class="QPushButton" name="save_event_fits_button">
            <property name="sizePolicy">
             <sizepolicy hsizetype="MinimumExpanding" vsizetype="Expanding">
              <horstretch>0</horstretch>
@@ -1487,7 +1184,7 @@
      </layout>
     </item>
     <item row="1" column="1">
-     <widget class="GraphicsLayoutWidget" name="signalplot">
+     <widget class="GraphicsLayoutWidget" name="signal_plot">
       <property name="sizePolicy">
        <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
         <horstretch>0</horstretch>
@@ -1528,7 +1225,7 @@
        <number>0</number>
       </property>
       <item>
-       <widget class="GraphicsLayoutWidget" name="eventplot">
+       <widget class="GraphicsLayoutWidget" name="event_plot">
         <property name="sizePolicy">
          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
           <horstretch>0</horstretch>
@@ -1554,7 +1251,7 @@ border-color: rgb(0, 0, 0);</string>
        </widget>
       </item>
       <item>
-       <widget class="QTabWidget" name="tabWidget">
+       <widget class="QTabWidget" name="tab_plot_widget">
         <property name="sizePolicy">
          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
           <horstretch>0</horstretch>
@@ -1588,7 +1285,7 @@ border-color: rgb(0, 0, 0);</string>
         <property name="documentMode">
          <bool>false</bool>
         </property>
-        <widget class="QWidget" name="scattertab">
+        <widget class="QWidget" name="scatter_tab">
          <property name="font">
           <font>
            <family>Arial</family>
@@ -1615,7 +1312,7 @@ border-color: rgb(0, 0, 0);</string>
            <number>0</number>
           </property>
           <item row="0" column="0">
-           <widget class="GraphicsLayoutWidget" name="scatterplot">
+           <widget class="GraphicsLayoutWidget" name="scatter_plot">
             <property name="sizePolicy">
              <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
               <horstretch>0</horstretch>
@@ -1638,7 +1335,7 @@ border-color: rgb(0, 0, 0);</string>
           </item>
          </layout>
         </widget>
-        <widget class="QWidget" name="frachisttab">
+        <widget class="QWidget" name="frac_tab">
          <attribute name="title">
           <string>Frac</string>
          </attribute>
@@ -1659,7 +1356,7 @@ border-color: rgb(0, 0, 0);</string>
            <number>0</number>
           </property>
           <item row="0" column="0">
-           <widget class="GraphicsLayoutWidget" name="frachistplot">
+           <widget class="GraphicsLayoutWidget" name="frac_plot">
             <property name="sizePolicy">
              <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
               <horstretch>0</horstretch>
@@ -1715,7 +1412,7 @@ border-color: rgb(0, 0, 0);</string>
           </item>
          </layout>
         </widget>
-        <widget class="QWidget" name="delitab">
+        <widget class="QWidget" name="del_i_tab">
          <attribute name="title">
           <string>Deli</string>
          </attribute>
@@ -1736,7 +1433,7 @@ border-color: rgb(0, 0, 0);</string>
            <number>0</number>
           </property>
           <item row="0" column="0">
-           <widget class="GraphicsLayoutWidget" name="delihistplot">
+           <widget class="GraphicsLayoutWidget" name="del_i_plot">
             <property name="sizePolicy">
              <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
               <horstretch>0</horstretch>
@@ -1870,7 +1567,7 @@ border-color: rgb(0, 0, 0);</string>
           </item>
          </layout>
         </widget>
-        <widget class="QWidget" name="dwelltab">
+        <widget class="QWidget" name="dwell_tab">
          <attribute name="title">
           <string>Dwell</string>
          </attribute>
@@ -1891,7 +1588,7 @@ border-color: rgb(0, 0, 0);</string>
            <number>0</number>
           </property>
           <item row="0" column="0">
-           <widget class="GraphicsLayoutWidget" name="dwellhistplot">
+           <widget class="GraphicsLayoutWidget" name="dwell_plot">
             <property name="sizePolicy">
              <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
               <horstretch>0</horstretch>
@@ -2022,7 +1719,7 @@ border-color: rgb(0, 0, 0);</string>
           </item>
          </layout>
         </widget>
-        <widget class="QWidget" name="dttab">
+        <widget class="QWidget" name="dt_tab">
          <attribute name="title">
           <string>dt</string>
          </attribute>
@@ -2043,7 +1740,7 @@ border-color: rgb(0, 0, 0);</string>
            <number>0</number>
           </property>
           <item row="0" column="0">
-           <widget class="GraphicsLayoutWidget" name="dthistplot">
+           <widget class="GraphicsLayoutWidget" name="dt_plot">
             <property name="sizePolicy">
              <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
               <horstretch>0</horstretch>
@@ -2177,25 +1874,25 @@ border-color: rgb(0, 0, 0);</string>
      <x>0</x>
      <y>0</y>
      <width>1549</width>
-     <height>20</height>
+     <height>21</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
     <property name="title">
      <string>File</string>
     </property>
-    <addaction name="Poresizeraction"/>
-    <addaction name="actionBatch_Process"/>
+    <addaction name="pore_sizer_action"/>
+    <addaction name="batch_process_action"/>
    </widget>
-   <widget class="QMenu" name="menuEdit">
+   <widget class="QMenu" name="edit_menu">
     <property name="title">
      <string>Edit</string>
     </property>
    </widget>
    <addaction name="menuFile"/>
-   <addaction name="menuEdit"/>
+   <addaction name="edit_menu"/>
   </widget>
-  <widget class="QStatusBar" name="statusbar"/>
+  <widget class="QStatusBar" name="status_bar"/>
   <action name="actionInvert">
    <property name="text">
     <string>Invert data</string>
@@ -2206,12 +1903,12 @@ border-color: rgb(0, 0, 0);</string>
     <string>Set Event Buffer Size</string>
    </property>
   </action>
-  <action name="Poresizeraction">
+  <action name="pore_sizer_action">
    <property name="text">
     <string>PoreSizer</string>
    </property>
   </action>
-  <action name="actionBatch_Process">
+  <action name="batch_process_action">
    <property name="text">
     <string>Batch Process</string>
    </property>
@@ -2225,43 +1922,32 @@ border-color: rgb(0, 0, 0);</string>
   </customwidget>
  </customwidgets>
  <tabstops>
-  <tabstop>loadbutton</tabstop>
-  <tabstop>cutbutton</tabstop>
-  <tabstop>nextfilebutton</tabstop>
-  <tabstop>baselinebutton</tabstop>
-  <tabstop>previousfilebutton</tabstop>
-  <tabstop>analyzebutton</tabstop>
-  <tabstop>invertbutton</tabstop>
-  <tabstop>fitbutton</tabstop>
-  <tabstop>clearscatterbutton</tabstop>
-  <tabstop>loaddatabutton</tabstop>
-  <tabstop>LPentry</tabstop>
-  <tabstop>outputsamplerateentry</tabstop>
-  <tabstop>eventbufferentry</tabstop>
-  <tabstop>thresholdentry</tabstop>
-  <tabstop>previousbutton</tabstop>
-  <tabstop>nextbutton</tabstop>
-  <tabstop>gobutton</tabstop>
-  <tabstop>eventnumberentry</tabstop>
-  <tabstop>deleteeventbutton</tabstop>
-  <tabstop>concatenatebutton</tabstop>
-  <tabstop>showcatbutton</tabstop>
-  <tabstop>savecatbutton</tabstop>
-  <tabstop>savefitsbutton</tabstop>
-  <tabstop>eventplot</tabstop>
-  <tabstop>tabWidget</tabstop>
-  <tabstop>scatterplot</tabstop>
-  <tabstop>frachistplot</tabstop>
+  <tabstop>load_button</tabstop>
+  <tabstop>low_pass_entry</tabstop>
+  <tabstop>sample_rate_entry</tabstop>
+  <tabstop>event_buffer_entry</tabstop>
+  <tabstop>threshold_entry</tabstop>
+  <tabstop>previous_event_button</tabstop>
+  <tabstop>next_event_button</tabstop>
+  <tabstop>go_event_button</tabstop>
+  <tabstop>event_number_entry</tabstop>
+  <tabstop>delete_event_button</tabstop>
+  <tabstop>concatenate_button</tabstop>
+  <tabstop>save_event_fits_button</tabstop>
+  <tabstop>event_plot</tabstop>
+  <tabstop>tab_plot_widget</tabstop>
+  <tabstop>scatter_plot</tabstop>
+  <tabstop>frac_plot</tabstop>
   <tabstop>fracbins</tabstop>
-  <tabstop>delihistplot</tabstop>
+  <tabstop>del_i_plot</tabstop>
   <tabstop>delibins</tabstop>
   <tabstop>delirange0</tabstop>
   <tabstop>delirange1</tabstop>
-  <tabstop>dwellhistplot</tabstop>
+  <tabstop>dwell_plot</tabstop>
   <tabstop>dwellbins</tabstop>
   <tabstop>dwellrange0</tabstop>
   <tabstop>dwellrange1</tabstop>
-  <tabstop>dthistplot</tabstop>
+  <tabstop>dt_plot</tabstop>
   <tabstop>dtbins</tabstop>
   <tabstop>dtrange0</tabstop>
   <tabstop>dtrange1</tabstop>

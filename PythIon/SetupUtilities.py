@@ -137,11 +137,11 @@ def load_abf_file(file_name, working_dir=os.getcwd()):
         abf_low_pass = sample_rate
 
     # output sample_rate can not be higher than sample_rate, resetting to original rate.
-    output_sample_rate = min(output_sample_rate, sample_rate)
+    # output_sample_rate = min(output_sample_rate, sample_rate)
     # ui.outputsamplerateentry.setText(str((round(sample_rate) / 1000)))
 
     # Already LP filtered lower than or at entry, data will not be filtered
-    low_pass_cutoff = min(low_pass_cutoff, abf_low_pass)
+    # low_pass_cutoff = min(low_pass_cutoff, abf_low_pass)
     # ui.LPentry.setText(str((round(low_pass_cutoff) / 1000)))
 
     # else:
@@ -162,9 +162,7 @@ def load_abf_file(file_name, working_dir=os.getcwd()):
     #         p1.addItem(cmd_text)
     #         cmd_text.setPos(cmdt, np.max(data))
     data_params = {
-        'low_pass_cutoff': low_pass_cutoff,
-        'sample_rate': sample_rate,
-        'output_sample_rate': output_sample_rate
+        'sample_rate': sample_rate
     }
     return data, data_params
 
@@ -175,49 +173,50 @@ def setup_ui(form):
     ui.setupUi(form)
 
     # Linking buttons to main functions
-    ui.loadbutton.clicked.connect(form.get_file)
-    ui.analyzebutton.clicked.connect(form.analyze)
-    ui.cutbutton.clicked.connect(form.cut)
-    ui.baselinebutton.clicked.connect(form.set_baseline)
-    ui.clearscatterbutton.clicked.connect(form.clear_scatter)
-    ui.deleteeventbutton.clicked.connect(form.delete_event)
-    ui.invertbutton.clicked.connect(form.invert_data)
-    ui.concatenatebutton.clicked.connect(form.concatenate_text)
-    ui.nextfilebutton.clicked.connect(form.next_file)
-    ui.previousfilebutton.clicked.connect(form.previous_file)
-    ui.showcatbutton.clicked.connect(form.show_cat_trace)
-    ui.savecatbutton.clicked.connect(form.save_cat_trace)
-    ui.gobutton.clicked.connect(form.inspect_event)
-    ui.previousbutton.clicked.connect(form.previous_event)
-    ui.nextbutton.clicked.connect(form.next_event)
-    ui.savefitsbutton.clicked.connect(form.save_event_fits)
-    ui.fitbutton.clicked.connect(form.cusum)
-    ui.Poresizeraction.triggered.connect(form.size_pore)
-    ui.actionBatch_Process.triggered.connect(form.batch_info_dialog)
+    ui.load_button.clicked.connect(form.get_file)
+    ui.analyze_button.clicked.connect(form.analyze)
+    ui.cut_button.clicked.connect(form.cut)
+    ui.baseline_button.clicked.connect(form.set_baseline)
+    ui.clear_data_button.clicked.connect(form.clear_scatter)
+    ui.delete_event_button.clicked.connect(form.delete_event)
+    ui.invert_button.clicked.connect(form.invert_data)
+    ui.concatenate_button.clicked.connect(form.concatenate_text)
+    ui.next_file_button.clicked.connect(form.next_file)
+    ui.previous_file_button.clicked.connect(form.previous_file)
+    # ui.showcatbutton.clicked.connect(form.show_cat_trace)
+    # ui.savecatbutton.clicked.connect(form.save_cat_trace)
+    ui.go_event_button.clicked.connect(form.inspect_event)
+    ui.previous_event_button.clicked.connect(form.previous_event)
+    ui.next_event_button.clicked.connect(form.next_event)
+    ui.save_event_fits_button.clicked.connect(form.save_event_fits)
+    ui.analyze_button.clicked.connect(form.cusum)
+    ui.pore_sizer_action.triggered.connect(form.size_pore)
+    ui.batch_process_action.triggered.connect(form.batch_info_dialog)
 
-    ui.LPentry.editingFinished.connect(form.replot)
+    ui.low_pass_entry.editingFinished.connect(form.replot)
+    # TODO: Connect sample rate entry to update axis on finishing edit
 
     # Setting up plotting elements and their respective options
     # TODO: Make list of plots (Setting all to white I assume)
     # for plot in plot_.values():
 
     plot_dict = {
-        'signal_plot': ui.signalplot,
-        'scatter_plot': ui.scatterplot,
+        'signal_plot': ui.signal_plot,
+        'scatter_plot': ui.scatter_plot,
         # ui.PSDplot.setBackground('w')
-        'event_plot': ui.eventplot,
-        'frachist_plot': ui.frachistplot,
-        'deli_hist_plot': ui.delihistplot,
-        'dwell_hist_plot': ui.dwellhistplot,
-        'd_thist_plot': ui.dthistplot
+        'event_plot': ui.event_plot,
+        'frachist_plot': ui.frac_plot,
+        'deli_hist_plot': ui.del_i_plot,
+        'dwell_hist_plot': ui.dwell_plot,
+        'd_thist_plot': ui.dt_plot
     }
     for plot in plot_dict.values():
         plot.setBackground('w')
     return ui
 
 
-def setup_signal_plot(ui):
-    signal_plot = ui.signalplot.addPlot()
+def setup_signal_plot(ui: Ui_PythIon):
+    signal_plot = ui.signal_plot.addPlot()
 
     signal_plot.setLabel('bottom', text='Time', units='s')
     signal_plot.setLabel('left', text='Current', units='A')
@@ -234,7 +233,7 @@ def setup_event_plot(clicked):
 
 
 def setup_scatter_plot(instance, p2):
-    w1 = instance.ui.scatterplot.addPlot()
+    w1 = instance.ui.scatter_plot.addPlot()
     w1.addItem(p2)
     w1.setLabel('bottom', text='Time', units=u'μs')
     w1.setLabel('left', text='Fractional Current Blockage')
@@ -243,8 +242,8 @@ def setup_scatter_plot(instance, p2):
     return w1
 
 
-def setup_cb(ui):
-    cb = pg.ColorButton(ui.scatterplot, color=(0, 0, 255, 50))
+def setup_cb(ui: Ui_PythIon):
+    cb = pg.ColorButton(ui.scatter_plot, color=(0, 0, 255, 50))
     cb.setFixedHeight(30)
     cb.setFixedWidth(30)
     cb.move(0, 210)
@@ -253,19 +252,19 @@ def setup_cb(ui):
 
 
 def setup_plots(instance):  # TODO: revisit name
-    frac_hist = instance.ui.frachistplot.addPlot()
+    frac_hist = instance.ui.frac_plot.addPlot()
     frac_hist.setLabel('bottom', text='Fractional Current Blockage')
     frac_hist.setLabel('left', text='Counts')
 
-    delta_hist = instance.ui.delihistplot.addPlot()
+    delta_hist = instance.ui.del_i_plot.addPlot()
     delta_hist.setLabel('bottom', text='ΔI', units='A')
     delta_hist.setLabel('left', text='Counts')
 
-    duration_hist = instance.ui.dwellhistplot.addPlot()
+    duration_hist = instance.ui.dwell_plot.addPlot()
     duration_hist.setLabel('bottom', text='Log Dwell Time', units='μs')
     duration_hist.setLabel('left', text='Counts')
 
-    dt_hist = instance.ui.dthistplot.addPlot()
+    dt_hist = instance.ui.dt_plot.addPlot()
     dt_hist.setLabel('bottom', text='dt', units='s')
     dt_hist.setLabel('left', text='Counts')
     return frac_hist, delta_hist, duration_hist, dt_hist
@@ -279,8 +278,8 @@ def load_logo():
     return logo
 
 
-def setup_current_hist(ui, logo):
-    p3 = ui.eventplot.addPlot()
+def setup_current_hist(ui: Ui_PythIon, logo):
+    p3 = ui.event_plot.addPlot()
     p3.hideAxis('bottom')
     p3.hideAxis('left')
     p3.addItem(logo)
