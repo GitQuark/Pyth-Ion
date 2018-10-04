@@ -297,8 +297,8 @@ def threshold_data(data, threshold, comparison='greater'):
         print("Uneven number of boundaries")
         event_bounds = []  # This section should never happen
     elif any(event_bounries):
-        boundry_idxs = list(np.concatenate(np.argwhere(event_bounries)))
-        event_bounds = list(zip(boundry_idxs[::2], boundry_idxs[1::2]))
+        boundary_idxs = list(np.concatenate(np.argwhere(event_bounries)))
+        event_bounds = list(zip(boundary_idxs[::2], boundary_idxs[1::2]))
     else:
         event_bounds = []
     return event_bounds
@@ -395,21 +395,26 @@ BILLION = 10 ** 9  # Hopefully makes reading clearer
 class Event(object):
     subevents: List
 
-    def __init__(self, data, start, end, baseline, sample_rate):
+    def __init__(self, data, start, end, sample_rate, baseline=None):
         # Start and end are the indicies in the data
         print(start, end)
-        self.baseline = baseline
         self.sample_rate = sample_rate
         start = slope_crawl(data, start, 'backward')
         end = slope_crawl(data, end, 'forward')
-        self.start, self.end = start, end
+        self.start, self.end = start, end  # start and end are relative to the whole dataset
         self.data = data[self.start: self.end]
         extrema = find_extrema(self.data)
         self.main_bounds = (extrema[0], extrema[-1] + 1)
         main_event = self.data[self.main_bounds[0]: self.main_bounds[1]]
         self.local_baseline, self.local_stedev = np.mean(main_event), np.std(main_event)
+        # Intervald sre relative to the internal data
         self.intervals = self.interval_detect(main_event, num_stdevs=1.75, min_length=1000)
         # True can false are converted to 1 and 0, np.argmax returns index of first ture value
+
+        if baseline is not None:
+            self.baseline = baseline
+        else:
+            pass
 
         # TODO: Fix slight error in calculations; Too much past the tails is included in fall and rise
         # Rise_end seems to have consistent issues
@@ -476,6 +481,7 @@ class Event(object):
             fit_points.append((start + offset, level))
             fit_points.append((end + offset, level))
         fit_points.append((offset + len(self.data) - 1, self.data[-1]))
+        fit_points.append(fit_points[-1])  # Added since pyqtgraph does not display the last line for some reason
         x, y = zip(*fit_points)
         return np.array(x), np.array(y)
 
@@ -491,6 +497,10 @@ class Event(object):
                 'duration': (interval[1] - interval[0]) / self.sample_rate
             })
         return data_list
+
+    def shift_by(self, shift):
+        self.start += shift
+        self.end += shift
 
 
 class CurrentData(object):
@@ -593,6 +603,9 @@ class CurrentData(object):
     def add_cut(self, interval):
         start, end = interval
         print(interval)
+        for event in self.events:
+            if event.start > end:
+                event.shift_by(-(end - start))
         new_cuts = []
         insert_point_found = False
         self.cuts.reverse()
