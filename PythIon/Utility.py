@@ -414,7 +414,7 @@ class Event(object):
         if baseline is not None:
             self.baseline = baseline
         else:
-            pass
+            self.baseline = np.concatenate(data[start - 1000:start], data[end:end + 1000]).mean()
 
         # TODO: Fix slight error in calculations; Too much past the tails is included in fall and rise
         # Rise_end seems to have consistent issues

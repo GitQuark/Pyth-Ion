@@ -1,11 +1,10 @@
-from scipy import signal
 from PythIon import CUSUM
 from PythIon.PoreSizer import *
 from PythIon.SetupUtilities import *
 from PythIon.Utility import *
+from PythIon.Widgets.PlotGUI import *
 # plotguiuniversal works well for mac and laptops,
 # for larger screens try PlotGUI
-from PythIon.Widgets.PlotGUI import *
 # from PythIon.plotguiuniversal import *
 
 
@@ -56,6 +55,17 @@ class GUIForm(QtWidgets.QMainWindow):
         self.total_plot_points = len(self.event_plot.data)
         self.threshold = np.float64(self.ui.threshold_entry.text()) * 10 ** -9
 
+    def get_file(self):
+        wd = os.getcwd()
+        # attempt to open dialog from most recent directory
+        suffix_filter = "*.log;*.opt;*.npy;*.abf"
+        data_file_name, _ = QtWidgets.QFileDialog.getOpenFileName(self, 'Open file', wd, suffix_filter)
+        if data_file_name == ('', ''):  # Interaction canceled
+            return
+
+        self.data_file_name = data_file_name
+        self.load()
+
     def load(self):
         sdf = self.sdf
         ui = self.ui
@@ -73,67 +83,30 @@ class GUIForm(QtWidgets.QMainWindow):
 
         self.event_plot.setBrush(colors, mask=None)
 
-        # ui.eventinfolabel.clear()
-        # ui.eventcounterlabel.clear()
-        # ui.meandelilabel.clear()
-        # ui.meandwelllabel.clear()
-        # ui.meandtlabel.clear()
         ui.event_number_entry.setText(str(1))
 
-        # billionth = 10 ** -9
-        # threshold = float(ui.thresholdentry.text()) * billionth
         ui.status_bar.showMessage('Data file ' + data_file_name + ' loaded.')
-        ui.filelabel.setText(data_file_name)
+        ui.file_label.setText(data_file_name)
         print(data_file_name)
         low_pass_cutoff = float(ui.low_pass_entry.text())  # In Hz
         # use integer multiples of 4166.67 ie 2083.33 or 1041.67
         self.dataset = CurrentData(data_file_name)
 
-        # baseline = self.dataset.data_params.get('baseline')
-        # ui.eventcounterlabel.setText('Baseline=' + str(round(baseline * BILLION, 2)) + ' nA')
-
         if self.dataset.file_type in ('.log', '.abf', '.opt'):
-            self.dataset.processed_data(low_pass_cutoff)
+            self.dataset.process_data(low_pass_cutoff)
 
         update_signal_plot(self.dataset, self.signal_plot, self.current_hist)
         self.signal_plot.autoRange()
-        # self.threshold = threshold
-    #        if self.v != []:
-    #            self.p1.plot(self.t[2:][:-2],self.v[2:][:-2],pen='r')
-
-    #        self.w6.clear()
-    #        f, Pxx_den = signal.welch(data*10**12, self.outputsamplerate, nperseg = self.outputsamplerate)
-    #        self.w6.plot(x = f[1:], y = Pxx_den[1:], pen = 'b')
-    #        self.w6.setXRange(0,np.log10(self.outputsamplerate))
-
-    # Static
-    def get_file(self):
-        wd = os.getcwd()
-        # attempt to open dialog from most recent directory
-        suffix_filter = "*.log;*.opt;*.npy;*.abf"
-        data_file_name, _ = QtWidgets.QFileDialog.getOpenFileName(self, 'Open file', wd, suffix_filter)
-        if data_file_name == ('', ''):  # Interaction canceled
-            return
-
-        self.data_file_name = data_file_name
-        self.load()
 
     def analyze(self):
         dataset = self.dataset
         if dataset is None:
             return
-        durations_plot = self.event_plot
         self.analyze_type = 'coarse'  # Still don't know what this was for
-        self.clear_w_plots()
+        self.clear_stat_plots()
         threshold = np.float64(self.ui.threshold_entry.text()) * 1e-9  # Now in number of standard deviations
         dataset.detect_events(threshold)
         update_signal_plot(dataset, self.signal_plot, self.current_hist)
-
-    def save(self):
-        dataset = self.dataset
-        event_table = dataset.generate_event_table()
-        header_names = '\t'.join(['start', 'end', 'delta', 'frac', 'duration', 'event_number'])
-        np.savetxt(dataset.file_name + '_EventData.txt', event_table, delimiter='\t', header=header_names)
 
     # Called by Go button
     # TODO: Update with new event structure
@@ -162,14 +135,14 @@ class GUIForm(QtWidgets.QMainWindow):
         event_buffer = num_from_text_element(ui.event_buffer_entry, default=1000)
         first_index = sdf.fn[sdf.fn == mat_file_name].index[0]
         if not clicked:
-            event_number = int(ui.eventnumberentry.text())
+            event_number = int(ui.event_number_entry.text())
         else:
             # noinspection PyUnresolvedReferences
             event_number = clicked - first_index
-            ui.eventnumberentry.setText(str(event_number))
+            ui.event_number_entry.setText(str(event_number))
         if event_number >= num_events:
             event_number = num_events - 1
-            ui.eventnumberentry.setText(str(event_number))
+            ui.event_number_entry.setText(str(event_number))
 
         # plot event trace
         event = events[event_number]
@@ -278,7 +251,7 @@ class GUIForm(QtWidgets.QMainWindow):
 
     def cut(self):
         """
-Allows user to select region of data to be removed
+        Allows user to select region of data to be removed
         """
         dataset = self.dataset
         if dataset is None:
@@ -300,36 +273,8 @@ Allows user to select region of data to be removed
             dataset.add_cut(interval)
             included_pts = np.r_[0:interval[0], interval[1]:len(dataset.processed_data)]
             dataset.processed_data = dataset.processed_data[included_pts]
-
             update_signal_plot(dataset, signal_plot, voltage_hist)
-            # aph_y, aph_x = np.histogram(data, bins = len(data)/1000)
-            # aph_y, aph_x = np.histogram(data, bins=1000)
-            # aph_hist = pg.BarGraphItem(height=aph_y, x0=aph_x[:-1], x1=aph_x[1:], brush='b', pen=None)
-            # voltage_hist.addItem(aph_hist)
-            # voltage_hist.setXRange(np.min(dataset.processed_data), np.max(dataset.processed_data))
-
-            # cf = pd.DataFrame([cut_region], columns=list(['cutstart', 'cutend']))
-            # batch_info = batch_info.append(cf, ignore_index=True)
         else:
-            # detect clears and auto-position window around the clear
-            # clears = np.where(np.abs(data) > baseline + 10 * var)[0]
-            # if clears:
-            #     clear_starts = clears[0]
-            #     try:
-            #         clear_ends = clear_starts + np.where((data[clear_starts:-1] > baseline) &
-            #                                              (data[clear_starts:-1] < baseline + var))[0][10000]
-            #     except Exception as e:
-            #         print(e)
-            #         clear_ends = -1
-            #     clear_starts = np.where(data[0:clear_starts] > baseline)
-            #     try:
-            #         clear_starts = clear_starts[0][-1]
-            #     except Exception as e:
-            #         print(e)
-            #         clear_starts = 0
-            #
-            #     cut_region.setRegion((t[clear_starts], t[clear_ends]))
-
             signal_plot.addItem(cut_region)
             cut_region.show()
 
@@ -349,30 +294,24 @@ Allows user to select region of data to be removed
 
         if base_region.isVisible():
             left_bound, right_bound = base_region.getRegion()
+            base_region.hide()
             start, end = (int(max(left_bound, 0) * sample_rate), int(right_bound * sample_rate))
             baseline = np.mean(dataset.processed_data[start: end])
             dataset.data_params['baseline'] = baseline
             update_signal_plot(dataset, self.signal_plot, self.current_hist)
-            base_region.hide()
-
-            # baseline_text = 'Baseline=' + str(round(baseline * BILLION, 2)) + ' nA'
-            # ui.eventcounterlabel.setText(baseline_text)
             self.has_baseline_been_set = True
         else:
-            # base_region = pg.LinearRegionItem()  # PyQtgraph object for selecting a region
-            # base_region.hide()
-            # update_signal_plot(dataset, self.signal_plot, self.current_hist)
             self.signal_plot.addItem(base_region)
             base_region.show()
         self.base_region = base_region
 
     def clear_scatter(self):
-        p2 = self.event_plot
+        event_plot = self.event_plot
         ui = self.ui
-        p2.setData(x=[], y=[])
+        event_plot.setData(x=[], y=[])
         # last_event = []
         ui.scatter_plot.update()
-        self.clear_w_plots()
+        self.clear_stat_plots()
         self.sdf = pd.DataFrame(columns=['fn', 'color', 'deli', 'frac',
                                          'dwell', 'dt', 'startpoints', 'endpoints'])
 
@@ -402,7 +341,7 @@ Allows user to select region of data to be removed
         sdf = sdf.drop(first_index + event_number).reset_index(drop=True)
         self.inspect_event()
 
-        self.clear_w_plots()
+        self.clear_stat_plots()
         update_histograms(sdf, ui, events, self.frac_plot, self.del_i_plot, self.dwell_plot, self.dt_plot)
 
         if analyze_type == 'coarse':
@@ -424,7 +363,7 @@ Allows user to select region of data to be removed
             return
         update_signal_plot(self.dataset, self.signal_plot, self.current_hist)
 
-    def clear_w_plots(self):
+    def clear_stat_plots(self):
         self.frac_plot.clear()
         self.del_i_plot.clear()
         self.dwell_plot.clear()
@@ -444,32 +383,6 @@ Allows user to select region of data to be removed
         else:
             # noinspection PyTypeChecker
             self.inspect_event(clicked_index)
-
-    # move outside class
-    def concatenate_text(self):
-        wd = os.getcwd()
-        if self.data is None:
-            return
-        if not wd:
-            text_file_names = QtWidgets.QFileDialog.getOpenFileNames(self, 'Open file', '*.txt')[0]
-        else:
-            text_file_names = QtWidgets.QFileDialog.getOpenFileNames(self, 'Open file', wd, '*.txt')[0]
-        wd = os.path.dirname(text_file_names[0])
-
-        new_text_data = [np.loadtxt(str(text_file_name), delimiter='\t') for text_file_name in text_file_names]
-        new_text_data = np.array(new_text_data)
-        # for i in range(len(text_file_names)):
-        #     temp_text_data = np.loadtxt(str(text_file_names[i]), delimiter='\t')
-        #     if i == 0:
-        #         new_text_data = temp_text_data
-        #     else:
-        #         new_text_data = np.concatenate((new_text_data, temp_text_data))
-
-        new_file_name = QtWidgets.QFileDialog.getSaveFileName(self, 'New File name', wd, '*.txt')[0]
-        # noinspection PyTypeChecker
-        np.savetxt(str(new_file_name), new_text_data, delimiter='\t',
-                   header="\t".join(["dI", "fr", "dw", "dt", 'stdev']))
-        return wd
 
     def next_file(self):
         file_type = self.file_type
@@ -499,48 +412,6 @@ Allows user to select region of data to be removed
         self.data_file_name = next_file_name
         self.load()
 
-    def save_trace(self):
-        data = self.data
-        if data is None:
-            return
-        mat_file_name = self.mat_file_name
-        data.astype('d').tofile(mat_file_name + '_trace.bin')
-
-    def show_cat_trace(self):
-        data = self.data
-        if data is None:
-            return
-        ui = self.ui
-        dt = self.dt
-        start_points = self.start_points
-        end_points = self.end_points
-        p1 = self.signal_plot
-        event_buffer = np.int(ui.event_buffer_entry.text())
-        num_events = len(dt)
-        output_sample_rate = self.output_sample_rate
-        baseline = self.baseline
-        del_i = self.del_i
-
-        p1.clear()
-        event_time = [0]
-        for idx in range(num_events):
-            if idx < num_events - 1:
-                if end_points[idx] + event_buffer > start_points[idx + 1]:
-                    print('overlapping event')
-                else:
-                    adj_start = start_points[idx] - event_buffer
-                    adj_end = start_points[idx] - event_buffer
-                    eventdata = data[adj_start:adj_end]
-                    fitdata = np.concatenate(
-                        (np.repeat(np.array([baseline]), event_buffer),
-                         np.repeat(np.array([baseline - del_i[idx]]), adj_end - adj_start),
-                         np.repeat(np.array([baseline]), event_buffer)), 0)
-                    event_time = np.arange(0, len(eventdata)) + .75 * event_buffer + event_time[-1]
-                    p1.plot(event_time / output_sample_rate, eventdata, pen='b')
-                    p1.plot(event_time / output_sample_rate, fitdata, pen=pg.mkPen(color=(173, 27, 183), width=2))
-
-        p1.autoRange()
-
     def keyPressEvent(self, event):
         key = event.key()
         qt = QtCore.Qt
@@ -561,11 +432,6 @@ Allows user to select region of data to be removed
         elif self.cut_region.isVisible and key == qt.Key_Escape:
             self.cut_region.hide()
 
-    def save_cat_trace(self):
-        if self.dataset is None:
-            return
-        print('This function is not currently in use')
-
     def save_event_fits(self):
         if self.dataset is None:
             return
@@ -576,69 +442,6 @@ Allows user to select region of data to be removed
         event_data = self.dataset.generate_event_table()
         column_order = ('event_number', 'start', 'end', 'duration', 'frac', 'voltage_change')
         event_data.loc[:, column_order].to_csv(file_name, index=False)
-
-    def cusum(self):
-        ui = self.ui
-        output_sample_rate = self.output_sample_rate
-        # ui_bp = self.ui.uibp
-        if self.data is None:
-            return
-        self.signal_plot.clear()
-        # self.signal_plot.setDownsampling(ds=False)
-        # dt = 1 / self.output_sample_rate
-        # cusum_thresh = np.float64(ui_bp.cusumthreshentry.text())
-        # step_size = np.float64(ui.levelthresholdentry.text())
-        fit_line, _, _, level_table = CUSUM.correct_cusum(self.data, 2e-10, 2.5e-11)
-
-        file_name = "TempNameEventTable"
-        extention = ".csv"
-        event_indicies = level_table['Voltage Level'] < level_table['Voltage Level'][0] - 3 * np.std(self.data)
-        event_table = level_table[event_indicies]
-        if not event_table.empty:
-            compute_dict = {
-                'Start Time': event_table['Start Index'] / output_sample_rate,
-                'End Time': event_table['End Index'] / output_sample_rate,
-                'Duration (s)': event_table['Duration'] / output_sample_rate,
-            }
-            event_table = event_table.assign(**compute_dict)
-            event_table = event_table.loc[:, ('Start Index', 'End Index', 'Duration',
-                                              'Start Time', 'End Time', 'Duration (s)',
-                                              'Voltage Level')]
-            event_table.to_csv(file_name + extention)
-
-        # np.savetxt(self.mat_file_name + '_Levels.txt', np.abs(cusum['jumps'] * 10 ** 12), delimiter='\t')
-
-        self.signal_plot.plot(self.t[2:][:-2], self.data[2:][:-2], pen='b')
-        self.signal_plot.plot(self.t[2:][:-3], fit_line[2:][:-2], pen='r')  # len(fit_line) = len(self.data) - 1
-        self.del_i_plot.clear()
-        # amp = np.abs(cusum['jumps'] * 10 ** 12)
-        # ampy, ampx = np.histogram(amp, bins=np.linspace(float(ui.delirange0.text()),
-        #                                                 float(ui.delirange1.text()),
-        #                                                 int(ui.delibins.text())))
-        # hist = pg.BarGraphItem(height=ampy, x0=ampx[:-1], x1=ampx[1:], brush='b')
-        # self.w3.addItem(hist)
-        # self.w3.autoRange()
-        # self.w3.setRange(xRange=[np.min(ampx), np.max(ampx)])
-
-        cusum_lines = np.array([]).reshape(0, 2)
-        # for i, level in enumerate(cusum.get('CurrentLevels')):
-        #     y = 2 * [level]
-        #     x = cusum.get('EventDelay')[i:i + 2]
-        #     self.signal_plot.plot(y=y, x=x, pen='r')
-        #     cusum_lines = np.concatenate((cusum_lines, np.array(list(zip(x, y)))))
-        #     try:
-        #         y = cusum.get('CurrentLevels')[i:i + 2]
-        #         x = cusum.get('EventDelay')[i:i + 2]  # 2 * [cusum.get('EventDelay')[i + 1]]
-        #         self.signal_plot.plot(y=y, x=x, pen='r')
-        #         cusum_lines = np.concatenate((cusum_lines, np.array(list(zip(x, y)))))
-        #     except Exception as e:
-        #         print(e)
-        #         raise Exception
-
-        cusum_lines.astype('d').tofile(self.mat_file_name + '_cusum.bin')
-        self.save_trace()
-
-        # print("Cusum Params" + str(cusum[self.threshold], cusum['stepsize']))
 
     def save_target(self):
         self.batch_info = save_batch_info(self.events, self.batch_info, self.mat_file_name)
@@ -840,8 +643,6 @@ Allows user to select region of data to be removed
 
         print('\007')
 
-        self.baseline = baseline
-        self.var = var
         self.sdf = sdf
         self.data_file_name = data_file_name
 

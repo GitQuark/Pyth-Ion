@@ -763,7 +763,7 @@
         </property>
         <layout class="QGridLayout" name="gridLayout_11">
          <item row="3" column="0" colspan="2">
-          <widget class="QLabel" name="filelabel">
+          <widget class="QLabel" name="file_label">
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
              <horstretch>0</horstretch>
