@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1549</width>
+    <width>1343</width>
     <height>812</height>
    </rect>
   </property>
@@ -759,10 +759,10 @@
          <enum>Qt::LeftToRight</enum>
         </property>
         <property name="alignment">
-         <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+         <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>
         </property>
         <layout class="QGridLayout" name="gridLayout_11">
-         <item row="3" column="0" colspan="2">
+         <item row="4" column="0" colspan="2">
           <widget class="QLabel" name="file_label">
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -795,7 +795,7 @@
            </property>
           </widget>
          </item>
-         <item row="0" column="1">
+         <item row="1" column="1">
           <widget class="QGroupBox" name="event_selector">
            <property name="sizePolicy">
             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
@@ -805,18 +805,18 @@
            </property>
            <property name="minimumSize">
             <size>
-             <width>225</width>
+             <width>200</width>
              <height>75</height>
             </size>
            </property>
            <property name="maximumSize">
             <size>
-             <width>16777215</width>
+             <width>200</width>
              <height>50</height>
             </size>
            </property>
            <property name="alignment">
-            <set>Qt::AlignCenter</set>
+            <set>Qt::AlignHCenter|Qt::AlignTop</set>
            </property>
            <layout class="QVBoxLayout" name="event_selector_layout">
             <property name="leftMargin">
@@ -851,6 +851,42 @@
               <property name="verticalSpacing">
                <number>0</number>
               </property>
+              <item row="1" column="2" alignment="Qt::AlignHCenter">
+               <widget class="QPushButton" name="go_event_button">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <property name="minimumSize">
+                 <size>
+                  <width>0</width>
+                  <height>5</height>
+                 </size>
+                </property>
+                <property name="maximumSize">
+                 <size>
+                  <width>16777215</width>
+                  <height>40</height>
+                 </size>
+                </property>
+                <property name="font">
+                 <font>
+                  <family>Arial</family>
+                  <pointsize>10</pointsize>
+                  <weight>50</weight>
+                  <bold>false</bold>
+                 </font>
+                </property>
+                <property name="layoutDirection">
+                 <enum>Qt::LeftToRight</enum>
+                </property>
+                <property name="text">
+                 <string>Go</string>
+                </property>
+               </widget>
+              </item>
               <item row="1" column="1">
                <widget class="QPushButton" name="previous_event_button">
                 <property name="sizePolicy">
@@ -917,42 +953,6 @@
                 </property>
                </widget>
               </item>
-              <item row="1" column="2" alignment="Qt::AlignHCenter">
-               <widget class="QPushButton" name="go_event_button">
-                <property name="sizePolicy">
-                 <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-                  <horstretch>0</horstretch>
-                  <verstretch>0</verstretch>
-                 </sizepolicy>
-                </property>
-                <property name="minimumSize">
-                 <size>
-                  <width>0</width>
-                  <height>5</height>
-                 </size>
-                </property>
-                <property name="maximumSize">
-                 <size>
-                  <width>16777215</width>
-                  <height>40</height>
-                 </size>
-                </property>
-                <property name="font">
-                 <font>
-                  <family>Arial</family>
-                  <pointsize>10</pointsize>
-                  <weight>50</weight>
-                  <bold>false</bold>
-                 </font>
-                </property>
-                <property name="layoutDirection">
-                 <enum>Qt::LeftToRight</enum>
-                </property>
-                <property name="text">
-                 <string>Go</string>
-                </property>
-               </widget>
-              </item>
               <item row="0" column="3">
                <widget class="QLineEdit" name="event_number_entry">
                 <property name="sizePolicy">
@@ -1000,7 +1000,7 @@
                 </property>
                 <property name="minimumSize">
                  <size>
-                  <width>200</width>
+                  <width>50</width>
                   <height>0</height>
                  </size>
                 </property>
@@ -1020,6 +1020,9 @@
                 </property>
                 <property name="text">
                  <string>Event Number:</string>
+                </property>
+                <property name="alignment">
+                 <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
                 </property>
                </widget>
               </item>
@@ -1112,6 +1115,39 @@
            </property>
           </widget>
          </item>
+         <item row="4" column="0">
+          <widget class="QPushButton" name="save_event_fits_button">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="MinimumExpanding" vsizetype="Expanding">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>100</width>
+             <height>20</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>16777215</height>
+            </size>
+           </property>
+           <property name="font">
+            <font>
+             <family>Arial</family>
+             <pointsize>9</pointsize>
+             <weight>50</weight>
+             <bold>false</bold>
+            </font>
+           </property>
+           <property name="text">
+            <string>SAVE EVENT FITS</string>
+           </property>
+          </widget>
+         </item>
          <item row="1" column="0">
           <widget class="QPushButton" name="concatenate_button">
            <property name="sizePolicy">
@@ -1146,9 +1182,9 @@
           </widget>
          </item>
          <item row="2" column="0">
-          <widget class="QPushButton" name="save_event_fits_button">
+          <widget class="QPushButton" name="save_trace_button">
            <property name="sizePolicy">
-            <sizepolicy hsizetype="MinimumExpanding" vsizetype="Expanding">
+            <sizepolicy hsizetype="Minimum" vsizetype="Expanding">
              <horstretch>0</horstretch>
              <verstretch>0</verstretch>
             </sizepolicy>
@@ -1159,22 +1195,14 @@
              <height>20</height>
             </size>
            </property>
-           <property name="maximumSize">
-            <size>
-             <width>16777215</width>
-             <height>16777215</height>
-            </size>
-           </property>
            <property name="font">
             <font>
              <family>Arial</family>
              <pointsize>9</pointsize>
-             <weight>50</weight>
-             <bold>false</bold>
             </font>
            </property>
            <property name="text">
-            <string>SAVE EVENT FITS</string>
+            <string>SAVE TRACE</string>
            </property>
           </widget>
          </item>
@@ -1277,7 +1305,7 @@ border-color: rgb(0, 0, 0);</string>
          <enum>QTabWidget::Rounded</enum>
         </property>
         <property name="currentIndex">
-         <number>4</number>
+         <number>0</number>
         </property>
         <property name="elideMode">
          <enum>Qt::ElideMiddle</enum>
@@ -1873,7 +1901,7 @@ border-color: rgb(0, 0, 0);</string>
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1549</width>
+     <width>1343</width>
      <height>21</height>
     </rect>
    </property>

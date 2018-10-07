@@ -98,7 +98,7 @@ def analyze(data, threshold, output_sample_rate):
     baseline = np.mean(data)
     events = []
     for interval in events_intervals:
-        events.append(Event(data, interval[0], interval[1], baseline, output_sample_rate))
+        events.append(Event(data, interval[0], interval[1], output_sample_rate, baseline))
     return events
 
 
@@ -424,7 +424,12 @@ class Event(object):
         self.deltas = [baseline - level for level in self.levels]
 
     def __repr__(self):
-        return str(self.levels)
+        num_levels = len(self.levels)
+        if num_levels == 1:
+            level_text = ' level : '
+        else:
+            level_text = ' levels: '
+        return 'Event with ' + str(num_levels) + level_text + ','.join([str(level) for level in self.levels])
 
     # Returns the actual event list properly nested
     @staticmethod
@@ -535,7 +540,7 @@ class CurrentData(object):
             start, end = bound
             if end - start < min_length:
                 continue
-            event = Event(self.processed_data, start, end, baseline, sample_rate)
+            event = Event(self.processed_data, start, end, sample_rate, baseline)
             self.events.append(event)
 
     def process_data(self, low_pass_cutoff=None):
@@ -596,7 +601,7 @@ class CurrentData(object):
         for idx, event in enumerate(self.events):
             event_entries = event.generate_level_entries()
             for entry in event_entries:
-                entry['event_number'] = idx
+                entry['event_number'] = idx + 1
                 event_data_list.append(entry)
         return pd.DataFrame(event_data_list)
 

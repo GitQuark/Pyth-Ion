@@ -25,8 +25,8 @@ class GUIForm(QtWidgets.QMainWindow):
         self.scatter_plot = setup_scatter_plot(self, self.event_plot)
         self.cb = setup_cb(self.ui)
         self.frac_plot, self.del_i_plot, self.dwell_plot, self.dt_plot = setup_plots(self)
-        self.logo = load_logo()
-        self.current_hist = setup_current_hist(self.ui, self.logo)
+        logo = load_logo()
+        self.current_hist = setup_current_hist(self.ui, logo)
 
         # Initializing various variables used for analysis
         self.data_file_name = None
