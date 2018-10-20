@@ -5,7 +5,7 @@ from typing import List, Tuple
 import numpy as np
 import pandas as pd
 
-from PythIon.Utility import running_stats, Event, CurrentData
+from PythIon.Model import Event, CurrentData
 from PythIon.SetupUtilities import load_log_file
 
 

@@ -3,6 +3,7 @@ from PythIon.PoreSizer import *
 from PythIon.SetupUtilities import *
 from PythIon.Utility import *
 from PythIon.Widgets.PlotGUI import *
+from PythIon.Model import *
 # plotguiuniversal works well for mac and laptops,
 # for larger screens try PlotGUI
 # from PythIon.plotguiuniversal import *
@@ -21,12 +22,10 @@ class GUIForm(QtWidgets.QMainWindow):
 
         self.ui = setup_ui(self)
         self.signal_plot = setup_signal_plot(self.ui)
-        self.event_plot = setup_event_plot(self.clicked)
-        self.scatter_plot = setup_scatter_plot(self, self.event_plot)
+        self.scatter_plot = setup_scatter_plot(self)
         self.cb = setup_cb(self.ui)
         self.frac_plot, self.del_i_plot, self.dwell_plot, self.dt_plot = setup_plots(self)
-        logo = load_logo()
-        self.current_hist = setup_current_hist(self.ui, logo)
+        self.current_hist = setup_current_hist(self.ui)
 
         # Initializing various variables used for analysis
         self.data_file_name = None
@@ -34,6 +33,13 @@ class GUIForm(QtWidgets.QMainWindow):
         self.base_region.hide()  # Needed since LinearRegionItems is loaded as visible
         self.cut_region = pg.LinearRegionItem(brush=(198, 55, 55, 75))
         self.cut_region.hide()
+        self.regions = {
+            'cut_region': pg.LinearRegionItem(brush=(198, 55, 55, 75)),
+            'base_region': pg.LinearRegionItem()
+        }
+        for _, region in self.regions.items():
+            region.hide()
+            self.signal_plot.addItem(region)
         self.last_event = []
         self.last_clicked = []
         self.has_baseline_been_set = False
@@ -42,7 +48,6 @@ class GUIForm(QtWidgets.QMainWindow):
         self.sdf = pd.DataFrame(columns=['fn', 'color', 'deli', 'frac',
                                          'dwell', 'dt', 'startpoints', 'endpoints'])
         self.analyze_type = 'coarse'
-        self.num_events = 0
         self.batch_processor = None
         self.file_list = None
         self.dataset = None
@@ -50,10 +55,9 @@ class GUIForm(QtWidgets.QMainWindow):
         self.cat_fits = None
         self.file_type = None
         self.events = None
-
+        self.highlighted_event = None
         self.batch_info = pd.DataFrame(columns=list(['cutstart', 'cutend']))
-        self.total_plot_points = len(self.event_plot.data)
-        self.threshold = np.float64(self.ui.threshold_entry.text()) * 10 ** -9
+        # self.total_plot_points = len(self.event_plot.data)
 
     def get_file(self):
         wd = os.getcwd()
@@ -81,17 +85,14 @@ class GUIForm(QtWidgets.QMainWindow):
         for i in range(len(colors)):
             colors[i] = pg.Color(colors[i])
 
-        self.event_plot.setBrush(colors, mask=None)
+        self.scatter_plot.items[0].setBrush(colors, mask=None)
 
         ui.event_number_entry.setText(str(1))
-
         ui.status_bar.showMessage('Data file ' + data_file_name + ' loaded.')
         ui.file_label.setText(data_file_name)
-        print(data_file_name)
         low_pass_cutoff = float(ui.low_pass_entry.text())  # In Hz
         # use integer multiples of 4166.67 ie 2083.33 or 1041.67
         self.dataset = CurrentData(data_file_name)
-
         if self.dataset.file_type in ('.log', '.abf', '.opt'):
             self.dataset.process_data(low_pass_cutoff)
 
@@ -106,23 +107,20 @@ class GUIForm(QtWidgets.QMainWindow):
         self.clear_stat_plots()
         threshold = np.float64(self.ui.threshold_entry.text()) * 1e-9  # Now in number of standard deviations
         dataset.detect_events(threshold)
+        update_event_stat_plots(self, dataset, self.scatter_plot, self.frac_plot,
+                                self.del_i_plot, self.dwell_plot, self.dt_plot)
         update_signal_plot(dataset, self.signal_plot, self.current_hist)
 
     # Called by Go button
-    # TODO: Update with new event structure
-    def inspect_event(self, clicked=None):
-        if clicked is None:
-            clicked = []
+    def inspect_event(self, event=None):
+        if event is None:
+            return
         if not self.dataset.events:
             return
 
         events = self.dataset.events
         sample_rate = self.dataset.data_params.get('sample_rate')
-        num_events = len(self.dataset.events)
-        baseline = events[0].baseline
-
         ui = self.ui
-        event_plot = self.event_plot
         current_hist = self.current_hist
 
         # Reset plot
@@ -133,16 +131,15 @@ class GUIForm(QtWidgets.QMainWindow):
         # Correct for user error if non-extistent number is entered
         event_buffer = num_from_text_element(ui.event_buffer_entry, default=1000)
         # first_index = sdf.fn[sdf.fn == mat_file_name].index[0]
-        if not clicked:
+        if not event:
             event_number = num_from_text_element(ui.event_number_entry, 1, len(events))
             ui.event_number_entry.setText(str(event_number))
             event_number -= 1
+            event = self.dataset.events[event_number]
         else:
-            event_number = clicked
+            event_number = event.index
             ui.event_number_entry.setText(str(event_number))
 
-        # plot event trace
-        event = events[event_number]
         # Just use main plot and set the view to focus on single event
         adj_start = int(event.start - event_buffer)
         adj_end = int(event.end + event_buffer)
@@ -211,9 +208,8 @@ class GUIForm(QtWidgets.QMainWindow):
         dataset = self.dataset
         if dataset is None:
             return
-        batch_info = self.batch_info
         # first check to see if cutting
-        cut_region = self.cut_region
+        cut_region = self.regions.get('cut_region')
         signal_plot = self.signal_plot
         voltage_hist = self.current_hist
 
@@ -221,20 +217,16 @@ class GUIForm(QtWidgets.QMainWindow):
             # If cut region has been set, cut region and replot remaining data
             left_bound, right_bound = cut_region.getRegion()
             cut_region.hide()
-            signal_plot.clear()
             voltage_hist.clear()
             sample_rate = self.dataset.data_params.get('sample_rate')
             interval = (int(left_bound * sample_rate), int(right_bound * sample_rate) + 1)
             dataset.add_cut(interval)
-            included_pts = np.r_[0:interval[0], interval[1]:len(dataset.processed_data)]
-            dataset.processed_data = dataset.processed_data[included_pts]
             update_signal_plot(dataset, signal_plot, voltage_hist)
         else:
-            signal_plot.addItem(cut_region)
+            # signal_plot.addItem(cut_region)
             cut_region.show()
 
-        self.cut_region = cut_region
-        self.batch_info = batch_info
+        # self.cut_region = cut_region
 
     def set_baseline(self):
         """
@@ -243,7 +235,7 @@ class GUIForm(QtWidgets.QMainWindow):
         dataset = self.dataset
         if dataset is None:
             return
-        base_region = self.base_region
+        base_region = self.regions.get('base_region')
         ui = self.ui
         sample_rate = self.dataset.data_params.get('sample_rate')
 
@@ -256,14 +248,14 @@ class GUIForm(QtWidgets.QMainWindow):
             update_signal_plot(dataset, self.signal_plot, self.current_hist)
             self.has_baseline_been_set = True
         else:
-            self.signal_plot.addItem(base_region)
+            # self.signal_plot.addItem(base_region)
             base_region.show()
         self.base_region = base_region
 
     def clear_scatter(self):
-        event_plot = self.event_plot
+        scatter = self.scatter_plot
         ui = self.ui
-        event_plot.setData(x=[], y=[])
+        scatter.setData(x=[], y=[])
         # last_event = []
         ui.scatter_plot.update()
         self.clear_stat_plots()
@@ -271,43 +263,40 @@ class GUIForm(QtWidgets.QMainWindow):
                                          'dwell', 'dt', 'startpoints', 'endpoints'])
 
     def delete_event(self):
-        events = self.dataset.events
-        if not events:
-            return
-        deltas = [event.delta for event in events]
-        durations = [event.duration for event in events]
-        frac = calc_frac(events)
-        dt = calc_dt(events)
-        noise = [event.noise for event in events]
-        p2 = self.event_plot
-        ui = self.ui
-        sdf = self.sdf
-        analyze_type = self.analyze_type
-        mat_file_name = self.mat_file_name
-
-        event_number = np.int(ui.event_number_entry.text())
-        del events[event_number]
-        ui.event_number_entry.setText(str(event_number))
-        first_index = sdf.fn[sdf.fn == mat_file_name].index[0]
-        p2.data = np.delete(p2.data, first_index + event_number)
-
-        # ui.eventcounterlabel.setText('Events:' + str(len(events)))
-
-        sdf = sdf.drop(first_index + event_number).reset_index(drop=True)
-        self.inspect_event()
-
-        self.clear_stat_plots()
-        update_histograms(sdf, ui, events, self.frac_plot, self.del_i_plot, self.dwell_plot, self.dt_plot)
-
-        if analyze_type == 'coarse':
-            self.save()
-            self.save_target()
-        if analyze_type == 'fine':
-            col_stack = np.column_stack((deltas, frac, durations, dt, noise))
-            header_names = "\t".join(["deli", "frac", "dwell", "dt", 'stdev'])
-            np.savetxt(mat_file_name + 'llDB.txt', col_stack, delimiter='\t', header=header_names)
-
-        self.ui = ui
+        event_idx = int(self.ui.event_number_entry.text()) - 1
+        self.dataset.delete_event(event_idx)
+        update_signal_plot(self.dataset, self.signal_plot, self.current_hist)
+        update_event_stat_plots(self, self.dataset, self.scatter_plot, self.frac_plot,
+                                self.del_i_plot, self.dwell_plot, self.dt_plot)
+        # scatter = self.scatter_plot
+        # ui = self.ui
+        # sdf = self.sdf
+        # analyze_type = self.analyze_type
+        # mat_file_name = self.mat_file_name
+        #
+        # event_number = np.int(ui.event_number_entry.text())
+        # del events[event_number]
+        # ui.event_number_entry.setText(str(event_number))
+        # first_index = sdf.fn[sdf.fn == mat_file_name].index[0]
+        # scatter.data = np.delete(scatter.data, first_index + event_number)
+        #
+        # # ui.eventcounterlabel.setText('Events:' + str(len(events)))
+        #
+        # sdf = sdf.drop(first_index + event_number).reset_index(drop=True)
+        # self.inspect_event()
+        #
+        # self.clear_stat_plots()
+        # update_histograms(sdf, ui, events, self.frac_plot, self.del_i_plot, self.dwell_plot, self.dt_plot)
+        #
+        # if analyze_type == 'coarse':
+        #     self.save()
+        #     self.save_target()
+        # if analyze_type == 'fine':
+        #     col_stack = np.column_stack((deltas, frac, durations, dt, noise))
+        #     header_names = "\t".join(["deli", "frac", "dwell", "dt", 'stdev'])
+        #     np.savetxt(mat_file_name + 'llDB.txt', col_stack, delimiter='\t', header=header_names)
+        #
+        # self.ui = ui
 
     def invert_data(self):
         if self.dataset:
@@ -324,20 +313,28 @@ class GUIForm(QtWidgets.QMainWindow):
         self.dwell_plot.clear()
         self.dt_plot.clear()
 
-    def clicked(self, points, sdf, p2, mat_file_name):
-        for idx, pt in enumerate(p2.points()):
-            if pt.pos() == points[0].pos():
-                clicked_index = idx
-                break
-        else:
+    def clicked(self, plot, points):
+        if not points:
             return
-
-        if sdf.fn[clicked_index] != mat_file_name:
-            print('Event is from an earlier file, not clickable')
-
-        else:
-            # noinspection PyTypeChecker
-            self.inspect_event(clicked_index)
+        selected_event = points[0].data().parent
+        if isinstance(self.highlighted_event, Event):
+            for interval in self.highlighted_event.intervals:
+                interval.reset_style('scatter')
+        # Highlight all points on the graph in the same event
+        for interval in selected_event.intervals:
+            interval.highlight('scatter')
+        self.scatter_plot.clear()
+        points = [interval.data_points['scatter'] for interval in self.dataset.get_intervals()]
+        scatter_data = pg.ScatterPlotItem(points)
+        scatter_data.sigClicked.connect(self.clicked)
+        self.scatter_plot.addItem(scatter_data)
+        # idx = [idx for idx, pt in enumerate(plot.points()) if pt.pos() == points[0].pos()]
+        # if idx is None:
+        #     return
+        # if sdf.fn[clicked_index] != mat_file_name:
+        #     print('Event is from an earlier file, not clickable')
+        self.highlighted_event = selected_event
+        self.inspect_event(selected_event)
 
     def next_file(self):
         file_type = self.file_type
@@ -366,6 +363,7 @@ class GUIForm(QtWidgets.QMainWindow):
         self.load()
 
     def keyPressEvent(self, event):
+        # TODO: convert to dict
         key = event.key()
         qt = QtCore.Qt
         if key == qt.Key_Up:
@@ -396,13 +394,16 @@ class GUIForm(QtWidgets.QMainWindow):
         column_order = ('event_number', 'start', 'end', 'duration', 'frac', 'voltage_change')
         event_data.loc[:, column_order].to_csv(file_name, index=False)
 
+    def save_trace(self):
+        pass
+
     def save_target(self):
         self.batch_info = save_batch_info(self.events, self.batch_info, self.mat_file_name)
 
     def batch_info_dialog(self):
         events = self.events
         ui_bp = self.bp.uibp
-        min_dwell = min([event.duration for event in events])
+        min_dwell = min([event.durations for event in events])
         min_frac = min(calc_frac(events))
         min_level_t = float(ui_bp.minleveltbox.text()) * 10 ** -6
         p1 = self.signal_plot
@@ -440,7 +441,6 @@ class GUIForm(QtWidgets.QMainWindow):
         info_file_name = self.mat_file_name
         sdf = self.sdf
         p1 = self.signal_plot
-        p2 = self.event_plot
         w1 = self.scatter_plot
         w2 = self.frac_plot
         w3 = self.del_i_plot
@@ -582,10 +582,10 @@ class GUIForm(QtWidgets.QMainWindow):
                                        'dt': dt, 'startpoints': start_points,
                                        'endpoints': end_points}), ignore_index=True)
 
-        p2.addPoints(x=np.log10(durations), y=frac,
-                     symbol='o', brush=(cb.color()), pen=None, size=10)
-
-        w1.addItem(p2)
+        # p2.addPoints(x=np.log10(durations), y=frac,
+        #              symbol='o', brush=(cb.color()), pen=None, size=10)
+        #
+        # w1.addItem(p2)
         w1.setLogMode(x=True, y=False)
         p1.autoRange()
         w1.autoRange()

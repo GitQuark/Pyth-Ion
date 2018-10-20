@@ -6,12 +6,9 @@ from typing import List
 import numpy as np
 import pandas as pd
 import pyqtgraph as pg
-
 # from PythIon.plotguiuniversal import *
-from qtpy import QtWidgets
 from scipy import signal
 
-from PythIon import EdgeDetect
 from PythIon.SetupUtilities import load_log_file, load_txt_file, load_npy_file, load_abf_file, load_opt_file
 
 
@@ -84,22 +81,22 @@ def calc_frac(events):
     return [event.local_baseline / events[0].baseline for event in events]
 
 
-# Takes the data and returns list of event objects.
-def analyze(data, threshold, output_sample_rate):
-    # Find all the points below thrshold
-    below = np.where(data < threshold)[0]
-    start_and_end = np.diff(below)
-    transitions = np.where(start_and_end > 1)[0]
-    # Assuming that record starts and end at baseline
-    # below[transitions] give starting points, below[transitions + 1] gives event end points
-    start_idxs = np.concatenate([[0], transitions + 1])
-    end_idxs = np.concatenate([transitions, [len(below) - 1]])
-    events_intervals = list(zip(below[start_idxs], below[end_idxs]))
-    baseline = np.mean(data)
-    events = []
-    for interval in events_intervals:
-        events.append(Event(data, interval[0], interval[1], output_sample_rate, baseline))
-    return events
+# # Takes the data and returns list of event objects.
+# def analyze(data, threshold, output_sample_rate):
+#     # Find all the points below thrshold
+#     below = np.where(data < threshold)[0]
+#     start_and_end = np.diff(below)
+#     transitions = np.where(start_and_end > 1)[0]
+#     # Assuming that record starts and end at baseline
+#     # below[transitions] give starting points, below[transitions + 1] gives event end points
+#     start_idxs = np.concatenate([[0], transitions + 1])
+#     end_idxs = np.concatenate([transitions, [len(below) - 1]])
+#     events_intervals = list(zip(below[start_idxs], below[end_idxs]))
+#     baseline = np.mean(data)
+#     events = []
+#     for interval in events_intervals:
+#         events.append(Event(data, interval[0], interval[1], output_sample_rate, baseline))
+#     return events
 
 
 def save_batch_info(events, batch_info, info_file_name):
@@ -180,7 +177,6 @@ def event_info_update(data, info_file_name, cb, events, ui, sdf, time_plot, dura
     t = np.arange(0, len(data)) / sample_rate
     time_plot.plot(t[2:][:-2], data[2:][:-2], pen='b')
     if num_events >= 2:
-        # TODO: Figure out why a single point can't be plotted
         # Plotting start and end points
         time_plot.plot(t[start_points], data[start_points], pen=None, symbol='o', symbolBrush='g',
                        symbolSize=10)
@@ -392,279 +388,7 @@ def slope_crawl(data, start, direction='forward', comparison='max'):
 BILLION = 10 ** 9  # Hopefully makes reading clearer
 
 
-class Event(object):
-    subevents: List
-
-    def __init__(self, data, start, end, sample_rate, baseline=None):
-        # Start and end are the indicies in the data
-        print(start, end)
-        self.sample_rate = sample_rate
-        start = slope_crawl(data, start, 'backward')
-        end = slope_crawl(data, end, 'forward')
-        self.start, self.end = start, end  # start and end are relative to the whole dataset
-        self.data = data[self.start: self.end]
-        extrema = find_extrema(self.data)
-        self.main_bounds = (extrema[0], extrema[-1] + 1)
-        main_event = self.data[self.main_bounds[0]: self.main_bounds[1]]
-        self.local_baseline, self.local_stedev = np.mean(main_event), np.std(main_event)
-        # Intervald sre relative to the internal data
-        self.intervals = self.interval_detect(main_event, num_stdevs=1.75, min_length=1000)
-        # True can false are converted to 1 and 0, np.argmax returns index of first ture value
-
-        if baseline is not None:
-            self.baseline = baseline
-        else:
-            self.baseline = np.concatenate(data[start - 1000:start], data[end:end + 1000]).mean()
-
-        # TODO: Fix slight error in calculations; Too much past the tails is included in fall and rise
-        # Rise_end seems to have consistent issues
-        self.noise = np.std(self.data)
-        self.durations = [(start - end) / sample_rate for start, end in self.intervals]  # In seconds
-        self.levels = [np.mean(main_event[start: end]) for start, end in self.intervals]  # In Volts
-        self.deltas = [baseline - level for level in self.levels]
-
-    def __repr__(self):
-        num_levels = len(self.levels)
-        if num_levels == 1:
-            level_text = ' level : '
-        else:
-            level_text = ' levels: '
-        return 'Event with ' + str(num_levels) + level_text + ','.join([str(level) for level in self.levels])
-
-    # Returns the actual event list properly nested
-    @staticmethod
-    def interval_detect(data, num_stdevs=1.75, min_length=500):
-        # TODO: set a maximum rise time
-        if len(data) < min_length:
-            return [(0, len(data))]
-        edge_data = EdgeDetect.canny_1d(data, 250, 3)
-        change_intervals = peak_detect(edge_data)  # Intervals where slope is significant
-        index_list = [0] + [idx for interval in change_intervals for idx in interval] + [len(data)]
-        intervals = [(index_list[2 * n], index_list[2 * n + 1]) for n in range(int(len(index_list) / 2))]
-        intervals.reverse()
-        interval = intervals.pop()
-        while intervals and interval[1] - interval[0] < min_length:
-            if not intervals:
-                event_list = [(0, len(data))]
-                break
-            _, new_end = intervals.pop()
-            interval = (0, new_end)
-        else:
-            event_list = [interval]
-        intervals.reverse()
-        for interval in intervals[1:]:
-            # IGNORE: Following python conventions of data point at end not included; interval[1] is in event
-            old_start, old_end = event_list[-1]
-            start, end = interval
-            too_short = end - start < min_length
-            # print(old_start, old_end, start, end)
-            # print(np.mean(data[start:end]) - np.mean(data[old_start:old_end]))
-            level_change = np.mean(data[start:end]) - np.mean(data[old_start:old_end])
-            change_too_small = abs(level_change) < num_stdevs * np.std(data)
-            if too_short or change_too_small:
-                event_list[-1] = (old_start, end)
-            else:
-                prev_start, prev_end = event_list[-1]
-                if data[prev_end] < data[start]:
-                    new_end_of_prev_interval = slope_crawl(data, start, 'backward', comparison='min')
-                else:  # data[prev_end] > data[start]
-                    new_end_of_prev_interval = slope_crawl(data, start, 'backward', comparison='max')
-                event_list[-1] = (prev_start, new_end_of_prev_interval)
-
-                event_list.append((start, end))
-        return event_list
-
-    def piecewise_fit(self, offset_fit=False):
-        offset = 0
-        if offset_fit:
-            offset += self.start
-        fit_points = [(offset, self.data[0])]
-        offset += self.main_bounds[0]
-        for idx, interval in enumerate(self.intervals):
-            start, end = interval
-            level = self.levels[idx]
-            fit_points.append((start + offset, level))
-            fit_points.append((end + offset, level))
-        fit_points.append((self.end, self.data[-1]))
-        fit_points.append(fit_points[-1])  # Added since pyqtgraph does not display the last line for some reason
-        x, y = zip(*fit_points)
-        return np.array(x), np.array(y)
-
-    def generate_level_entries(self):
-        data_list = []
-        event_length = self.end - self.start
-        for idx, interval in enumerate(self.intervals):
-            data_list.append({
-                'start': (self.start + interval[0]) / self.sample_rate,
-                'end': (self.start + interval[1]) / self.sample_rate,
-                'current_level': self.levels[idx],
-                'frac': (interval[1] - interval[0]) / event_length,
-                'duration': (interval[1] - interval[0]) / self.sample_rate
-            })
-        return data_list
-
-    def shift_by(self, shift):
-        self.start += shift
-        self.end += shift
 
 
-class CurrentData(object):
-    data_params: dict
-    events: List[Event]
-
-    def __init__(self, data_path, edge_buffer=1000):
-        self.file_dir = os.path.dirname(data_path)
-        self.file_name, self.file_type = os.path.basename(data_path).split('.')
-        self.data, data_info = load_data(data_path)
-        baseline, _ = converging_baseline(self.data)
-        self.data_params = {
-            'inverted': False,
-            'edge_buffer': edge_buffer,
-            'baseline': baseline,
-            **data_info}  # Python 3.5+ trick to combine dictionary values with an existing dictionary
-        self.processed_data = self.data
-        self.events = []
-        self.cuts = []
-
-    def detect_events(self, threshold=None, min_length=1000):
-        self.events = []
-        if not threshold:
-            sample_rate = self.data_params.get('sample_rate')
-            low_pass_cutoff = self.data_params.get('low_pass_cutoff')
-            threshold = threshold_search(self.processed_data, sample_rate, low_pass_cutoff)
-        self.data_params['threshold'] = threshold
-        bounds = threshold_data(self.processed_data, threshold, 'less')
-        baseline = self.data_params.get('baseline')
-        sample_rate = self.data_params.get('sample_rate')
-        for bound in bounds:
-            start, end = bound
-            if end - start < min_length:
-                continue
-            event = Event(self.processed_data, start, end, sample_rate, baseline)
-            self.events.append(event)
-
-    def process_data(self, low_pass_cutoff=None):
-        self.processed_data = self.data
-
-        if self.data_params.get('inverted'):
-            self.processed_data = -self.processed_data
-
-        if self.cuts:
-            slice_list = [slice(0, self.cuts[0][0])]  # Initial interval of included points
-            for idx, cut in enumerate(self.cuts[1:-1]):
-                # TODO: Make more efficient
-                # No effort to figure out an 'abosute position of the cuts
-                _, include_start = cut
-                # one increment for first cut being skipped, the other for acessing next cut
-                include_end, _ = self.cuts[idx + 1 + 1]
-                slice_list.append(slice(include_start, include_end))
-            slice_list.append(slice(self.cuts[-1][1], len(self.data)))
-            included_pts = np.r_[slice_list]
-            self.processed_data = self.processed_data[included_pts]
-
-        if not low_pass_cutoff:
-            low_pass_cutoff = self.data_params.get('low_pass_cutoff')
-        sample_rate = self.data_params.get('sample_rate')
-        if low_pass_cutoff and sample_rate:
-            self.data_params['low_pass_cutoff'] = low_pass_cutoff
-            nyquist_freq = sample_rate / 2
-            wn = low_pass_cutoff / nyquist_freq
-            # noinspection PyTupleAssignmentBalance
-            b, a = signal.bessel(4, wn, btype='low')
-            self.processed_data = signal.filtfilt(b, a, self.processed_data)
-
-        edge_buffer = self.data_params.get('edge_buffer')
-        self.processed_data = self.processed_data[edge_buffer: -edge_buffer]
-
-    def reset(self):
-        self.processed_data = self.data
-        self.cuts = []
-        self.events = []
-
-    def event_fits(self):
-        fits = []
-        for event in self.events:
-            fit = event.piecewise_fit(offset_fit=True)
-            fits.append(fit)
-        return fits  # List of fits fo each event
-
-    def get_event_prop(self, prop_name):
-        if not self.events:
-            return
-        if prop_name not in self.events[0].__dict__.keys():
-            return
-
-        return [event.__getattribute__(prop_name) for event in self.events]
-
-    def generate_event_table(self):
-        event_data_list = []
-        for idx, event in enumerate(self.events):
-            event_entries = event.generate_level_entries()
-            for entry in event_entries:
-                entry['event_number'] = idx + 1
-                event_data_list.append(entry)
-        return pd.DataFrame(event_data_list)
-
-    def add_cut(self, interval):
-        start, end = interval
-        print(interval)
-        for event in self.events:
-            if event.start > end:
-                event.shift_by(-(end - start))
-        new_cuts = []
-        insert_point_found = False
-        self.cuts.reverse()
-        while self.cuts:
-            cut_start, cut_end = self.cuts.pop()
-            print(cut_start, cut_end)
-            offset = cut_end - cut_start
-            if cut_start < start:
-                start += offset
-                end += offset
-                new_cuts.append((cut_start, cut_end))
-            elif start < cut_start < end:
-                end += offset
-                while self.cuts and start < self.cuts[-1][0] < end:
-                    cut = self.cuts.pop()
-                    offset = cut[1] - cut[0]
-                    end += offset
-                new_cuts.append((start, end))
-                insert_point_found = True
-            else:  # cut is interiely after new cut
-                if not insert_point_found:
-                    new_cuts.append((start, end))
-                    insert_point_found = True
-                new_cuts.append((cut_start, cut_end))
-        if not insert_point_found:
-            new_cuts.append((start, end))
-        self.cuts = new_cuts
 
 
-def update_signal_plot(dataset: CurrentData, signal_plot: pg.PlotItem, current_hist: pg.PlotItem):
-    signal_plot.clear()  # This might be unnecessary
-    sample_rate = dataset.data_params.get('sample_rate')
-    baseline = dataset.data_params.get('baseline')
-    threshold = dataset.data_params.get('threshold')
-    data = dataset.processed_data
-    if sample_rate:
-        t = np.arange(0, len(data)) / sample_rate
-        signal_plot.plot(t, data, pen='b')
-    else:
-        signal_plot.plot(data, pen='b')
-    if dataset.events:
-        fits = dataset.event_fits()
-        for x, y in fits:
-            # x = np.concatenate([x, [0]])
-            # y = np.concatenate([y, [0]])
-            if sample_rate:
-                x = x / sample_rate
-            signal_plot.plot(x, y, pen='r')
-    if dataset.file_type != '.abf':
-        signal_plot.addLine(y=baseline, pen='g')
-        signal_plot.addLine(y=threshold, pen='r')
-
-    current_hist.clear()
-    aph_y, aph_x = np.histogram(data, bins=1000)
-    aph_hist = pg.PlotCurveItem(aph_x, aph_y, stepMode=True, fillLevel=0, brush='b')
-    current_hist.addItem(aph_hist)
-    current_hist.setXRange(np.min(data), np.max(data))

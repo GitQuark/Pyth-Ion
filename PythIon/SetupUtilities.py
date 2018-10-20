@@ -199,12 +199,11 @@ def setup_ui(form):
     plot_dict = {
         'signal_plot': ui.signal_plot,
         'scatter_plot': ui.scatter_plot,
-        # ui.PSDplot.setBackground('w')
         'event_plot': ui.event_plot,
         'frachist_plot': ui.frac_plot,
         'deli_hist_plot': ui.del_i_plot,
         'dwell_hist_plot': ui.dwell_plot,
-        'd_thist_plot': ui.dt_plot
+        'dt_hist_plot': ui.dt_plot
     }
     for plot in plot_dict.values():
         plot.setBackground('w')
@@ -222,16 +221,12 @@ def setup_signal_plot(ui: Ui_PythIon):
     return signal_plot
 
 
-def setup_event_plot(clicked):
-    event_plot = pg.ScatterPlotItem()
-    event_plot.sigClicked.connect(clicked)
-    return event_plot
-
-
-def setup_scatter_plot(instance, p2):
+def setup_scatter_plot(instance):
+    scatter_data = pg.ScatterPlotItem()
+    scatter_data.sigClicked.connect(instance.clicked)
     w1 = instance.ui.scatter_plot.addPlot()
-    w1.addItem(p2)
-    w1.setLabel('bottom', text='Time', units=u'μs')
+    w1.addItem(scatter_data)
+    w1.setLabel('bottom', text='Time', units=u's')
     w1.setLabel('left', text='Fractional Current Blockage')
     w1.setLogMode(x=True, y=False)
     w1.showGrid(x=True, y=True)
@@ -274,7 +269,8 @@ def load_logo():
     return logo
 
 
-def setup_current_hist(ui: Ui_PythIon, logo):
+def setup_current_hist(ui: Ui_PythIon):
+    logo = load_logo()
     p3 = ui.event_plot.addPlot()
     p3.hideAxis('bottom')
     p3.hideAxis('left')
