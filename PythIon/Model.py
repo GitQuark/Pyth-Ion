@@ -3,6 +3,7 @@
 from PythIon import EdgeDetect
 from PythIon.Utility import *
 from math import log10
+import pyqtgraph as pg
 
 
 class Interval(object):
@@ -17,8 +18,11 @@ class Interval(object):
     def __len__(self):
         return len(self.data)
 
-    def level(self):
-        return np.mean(self.data)
+    def level(self, normalize=False):
+        if normalize:
+            return np.mean(self.data) / self.parent.baseline
+        else:
+            return np.mean(self.data)
 
     def noise(self):
         return np.std(self.data)
@@ -56,6 +60,7 @@ class Interval(object):
     def highlight(self, point_index):
         point = self.data_points[point_index]
         point['brush'] = 'r'
+        point['pen'] = 'r'
         point['size'] = 12
 
     def reset_style(self, point_index):
@@ -65,6 +70,7 @@ class Interval(object):
             'y': point['y'],
             'data': self,
             'brush': 'b',
+            'pen': 'b',
             'size': 10
         }
         self.data_points[point_index] = reset_dict
@@ -73,7 +79,7 @@ class Interval(object):
 class Event(object):
     subevents: List
 
-    def __init__(self, data, start, end, sample_rate, baseline=None, index=None):
+    def __init__(self, parent, data, start, end, sample_rate, baseline=None, index=None):
         # Start and end are the indicies in the data
         # print(start, end)
         self.index = index
@@ -90,7 +96,7 @@ class Event(object):
         intervals = self.interval_detect(main_event, num_stdevs=1.75, min_length=1000)
         self.intervals = []
         for start, end in intervals:
-            self.intervals.append(Interval(self, self.data[start:end], start, end))
+            self.intervals.append(Interval(self, main_event[start: end], start, end))
         # True can false are converted to 1 and 0, np.argmax returns index of first ture value
 
         if baseline is not None:
@@ -101,6 +107,8 @@ class Event(object):
         # TODO: Fix slight error in calculations; Too much past the tails is included in fall and rise
         # Rise_end seems to have consistent issues
         self.noise = np.std(self.data)
+
+        self.parent = parent
 
     def __repr__(self):
         num_levels = len(self.intervals)
@@ -121,7 +129,7 @@ class Event(object):
         index_list = [0] + [idx for interval in change_intervals for idx in interval] + [len(data)]
         intervals = [(index_list[2 * n], index_list[2 * n + 1]) for n in range(int(len(index_list) / 2))]
         intervals.reverse()
-        # This section removes shor initial intervals
+        # This section removes short initial intervals
         interval = intervals.pop()
         while intervals and interval[1] - interval[0] < min_length:
             if not intervals:
@@ -184,12 +192,23 @@ class Event(object):
     def levels(self):
         return [interval.level() for interval in self.intervals]
 
+    def inspect(self):
+        # TODO: make this a signal??
+        # Focus on event in signal plot
+        event_buffer = 1000
+        adj_start = int(self.start - event_buffer)
+        adj_end = int(self.end + event_buffer)
+        signal_plot = self.parent.signal_plot.plot
+        signal_plot.setXRange(adj_start / self.sample_rate, adj_end / self.sample_rate)
+        signal_plot.setYRange(min(self.data), max(self.data), padding=0.1)
+        self.parent.event_entry.set(self.index)
+
 
 class CurrentData(object):
     data_params: dict
     events: List[Event]
 
-    def __init__(self, data_path, edge_buffer=1000):
+    def __init__(self, event_entry, data_path, signal_plot, edge_buffer=1000):
         self.file_dir = os.path.dirname(data_path)
         self.file_name, self.file_type = os.path.basename(data_path).split('.')
         self.data, data_info = load_data(data_path)
@@ -202,8 +221,10 @@ class CurrentData(object):
         if 'sample_rate' not in self.data_params.keys():
             self.data_params['sample_rate'] = 2500000
         self.processed_data = self.data
+        self.signal_plot = signal_plot
         self.events = []
         self.cuts = []
+        self.event_entry = event_entry
 
     def detect_events(self, threshold=None, min_length=1000):
         self.events = []
@@ -220,12 +241,12 @@ class CurrentData(object):
             start, end = bound
             if end - start < min_length:
                 continue
-            event = Event(self.processed_data, start, end, sample_rate, baseline, index=index)
+            event = Event(self, self.processed_data, start, end, sample_rate, baseline, index=index)
             index += 1
             self.events.append(event)
 
     def process_data(self, low_pass_cutoff=None):
-        self.processed_data = self.data
+        self.processed_data = self.data[:5000000]
 
         if self.data_params.get('inverted'):
             self.processed_data = -self.processed_data
@@ -328,6 +349,7 @@ class CurrentData(object):
 
     def get_event_idx_by_interval_idx(self, interval_idx):
         total = 0
+        idx = 0
         for idx, event in enumerate(self.events):
             total += len(event.intervals)
             if interval_idx == total - 1:
@@ -348,57 +370,25 @@ class CurrentData(object):
                 intervals.append(interval)
         return intervals
 
+    def get_dt(self):
+        bounds = [(event.start, event.end) for event in self.events]
+        dt = []
+        for idx, bound in enumerate(bounds[:-1]):
+            current_end = bound[1]
+            next_start = bounds[idx + 1][0]
+            dt.append(next_start - current_end)
+        return dt
 
-def update_signal_plot(dataset: CurrentData, signal_plot: pg.PlotItem, current_hist: pg.PlotItem):
-    signal_plot.clear()  # This might be unnecessary
-    signal_plot.setClipToView(clip=True)
-    signal_plot.setDownsampling(ds=True, auto=True, mode='peak')
-    signal_plot.setDownsampling()
-    sample_rate = dataset.data_params.get('sample_rate')
-    baseline = dataset.data_params.get('baseline')
-    threshold = dataset.data_params.get('threshold')
-    data = dataset.processed_data
-    if sample_rate:
-        t = np.arange(0, len(data)) / sample_rate
-        signal_plot.plot(t, data, pen='b')
-    else:
-        signal_plot.plot(data, pen='b')
-    if dataset.events:
-        fits = dataset.event_fits()
-        for pos_list in fits:
-            # pyqtgraph doesn't plot a line to the last point given; repetition required
-            x = list(pos_list[:, 0])
-            y = list(pos_list[:, 1])
-            x.append(x[-1])
-            y.append(y[-1])
-            # Doing it this way rather than using pos arg since that is broken it seems
-            signal_plot.plot(x=x, y=y, pen='r')
-    if dataset.file_type != '.abf':
-        signal_plot.addLine(y=baseline, pen='g')
-        signal_plot.addLine(y=threshold, pen='r')
+    def invert(self):
+        self.data_params['inverted'] = not self.data_params['inverted']
+        self.processed_data = -self.processed_data
 
-    current_hist.clear()
-    aph_y, aph_x = np.histogram(data, bins=1000)
-    aph_hist = pg.PlotCurveItem(aph_x, aph_y, stepMode=True, fillLevel=0, brush='b')
-    current_hist.addItem(aph_hist)
-    current_hist.setXRange(np.min(data), np.max(data))
+    def inspect(self):
+        pass
 
+    def get_param(self, param_name):
+        return self.data_params.get(param_name)
 
-def update_event_stat_plots(instance, dataset: CurrentData, scatter_plot: pg.PlotItem, frac, del_i, dwell, dt):
-    ui = instance.ui
-    points = []
-    sample_rate = dataset.data_params.get('sample_rate')
-    scatter_plot.clear()
-    intervals = dataset.get_intervals()
-    for interval in intervals:
-        x = interval.duration(sample_rate)
-        y = 1 - (interval.level() / interval.parent.baseline)
-        point_pos = (log10(x), y)
-        interval.add_data_point('scatter', point_pos)
-        points.append(interval.data_points['scatter'])
-        interval.data_points['scatter']['brush'] = 'b'
-        interval.data_points['scatter']['size'] = '10'
-    # Using the list of dicts format
-    scatter_data = pg.ScatterPlotItem(points)
-    scatter_data.sigClicked.connect(instance.clicked)
-    scatter_plot.addItem(scatter_data)
+    def set_param(self, param_name, value):
+        self.data_params[param_name] = value
+

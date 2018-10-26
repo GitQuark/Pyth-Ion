@@ -1,15 +1,11 @@
 import math
-import os
 from itertools import chain
 from typing import List
 
-import numpy as np
 import pandas as pd
-import pyqtgraph as pg
 # from PythIon.plotguiuniversal import *
 from scipy import signal
-
-from PythIon.SetupUtilities import load_log_file, load_txt_file, load_npy_file, load_abf_file, load_opt_file
+from PythIon.Loading import *
 
 
 def bound(num, lower, upper):
@@ -56,7 +52,7 @@ def get_file(file_type, idx_offset, next_or_prev, mat_file_name):
 def num_from_text_element(element, lower=None, upper=None, default=0):
     # TODO: Check element is correct type
     try:
-        num_input = int(element.text())
+        num_input = int(element.value())
     except ValueError:
         # User tried to enter something other than a number into event num text box
         element.setText(str(default))
@@ -120,106 +116,72 @@ def save_batch_info(events, batch_info, info_file_name):
 
 
 def save_cat_data(dataset, file_name):
+    # TODO: Finish this function
     with open(file_name, 'w') as file:
-        file.write()
+        file.write(dataset)
 
 
-def update_histograms(sdf, ui, events, w2, w3, w4, w5):
-    colors = sdf.color.unique()
-    for i, x in enumerate(colors):
-        frac = calc_frac(events)
-        dt = calc_dt(events)
-        num_events = len(events)
-        # Plotting starts after this
-        durations = [event.duration for event in events]
-        deltas = [event.delta for event in events]
-        start_points = [event.start for event in events]
-        end_points = [event.end for event in events]
-        noise = [event.noise for event in events]
-        frac_bins = np.linspace(0, 1, int(ui.fracbins.text()))
-        delta_bins = np.linspace(float(ui.delirange0.text()) * 10 ** -9, float(ui.delirange1.text()) * 10 ** -9,
-                                 int(ui.delibins.text()))
-        duration_bins = np.linspace(float(ui.dwellrange0.text()), float(ui.dwellrange1.text()),
-                                    int(ui.dwellbins.text()))
-        dt_bins = np.linspace(float(ui.dtrange0.text()), float(ui.dtrange1.text()), int(ui.dtbins.text()))
+# def event_info_update(data, info_file_name, cb, events, ui, sdf, time_plot, durations_plot,
+#                       w1, w2, w3, w4, w5, sample_rate):
+#     frac = calc_frac(events)
+#     dt = calc_dt(events)
+#     num_events = len(events)
+#     # Plotting starts after this
+#     durations = [event.duration for event in events]
+#     deltas = [event.delta for event in events]
+#     start_points = [event.start for event in events]
+#     end_points = [event.end for event in events]
+#     noise = [event.noise for event in events]
+#
+#     # skips plotting first and last two points, there was a weird spike issue
+#     #        self.time_plot.plot(self.t[::10][2:][:-2],data[::10][2:][:-2],pen='b')
+#     time_plot.clear()
+#     t = np.arange(0, len(data)) / sample_rate
+#     time_plot.plot(t[2:][:-2], data[2:][:-2], pen='b')
+#     if num_events >= 2:
+#         # Plotting start and end points
+#         time_plot.plot(t[start_points], data[start_points], pen=None, symbol='o', symbolBrush='g',
+#                        symbolSize=10)
+#         time_plot.plot(t[end_points], data[end_points], pen=None, symbol='o', symbolBrush='r', symbolSize=10)
+#     time_plot.autoRange()
 
-        frac_y, frac_x = np.histogram(frac, bins=frac_bins)
-        deli_y, deli_x = np.histogram(deltas, bins=delta_bins)
-        dwell_y, dwell_x = np.histogram(np.log10(durations), bins=duration_bins)
-        dt_y, dt_x = np.histogram(dt, bins=dt_bins)
+    # # Updating satistics text
+    # mean_delta = round(np.mean(deltas) * BILLION, 2)
+    # median_duration = round(float(np.median(durations)), 2)
+    # event_rate = round(num_events / t[-1], 1)
+    # ui.eventcounterlabel.setText('Events:' + str(num_events))
+    # ui.meandelilabel.setText('Deli:' + str(mean_delta) + ' nA')
+    # ui.meandwelllabel.setText('Dwell:' + str(median_duration) + u' μs')
+    # ui.meandtlabel.setText('Rate:' + str(event_rate) + ' events/s')
+    #
+    # # Dataframe containing all information
+    # sdf = sdf[sdf.fn != info_file_name]
+    # fn = pd.Series([info_file_name] * num_events)
+    # color = pd.Series([pg.colorTuple(cb.color())] * num_events)
 
-        hist = pg.BarGraphItem(height=frac_y, x0=frac_x[:-1], x1=frac_x[1:], brush=x)
-        w2.addItem(hist)
-        hist = pg.BarGraphItem(height=deli_y, x0=deli_x[:-1], x1=deli_x[1:], brush=x)
-        w3.addItem(hist)
-        w3.setRange(xRange=[float(ui.delirange0.text()) * 10 ** -9, float(ui.delirange1.text()) * 10 ** -9])
-        hist = pg.BarGraphItem(height=dwell_y, x0=dwell_x[:-1], x1=dwell_x[1:], brush=x)
-        w4.addItem(hist)
-        hist = pg.BarGraphItem(height=dt_y, x0=dt_x[:-1], x1=dt_x[1:], brush=x)
-        w5.addItem(hist)
-
-
-def event_info_update(data, info_file_name, cb, events, ui, sdf, time_plot, durations_plot,
-                      w1, w2, w3, w4, w5, sample_rate):
-    frac = calc_frac(events)
-    dt = calc_dt(events)
-    num_events = len(events)
-    # Plotting starts after this
-    durations = [event.duration for event in events]
-    deltas = [event.delta for event in events]
-    start_points = [event.start for event in events]
-    end_points = [event.end for event in events]
-    noise = [event.noise for event in events]
-
-    # skips plotting first and last two points, there was a weird spike issue
-    #        self.time_plot.plot(self.t[::10][2:][:-2],data[::10][2:][:-2],pen='b')
-    time_plot.clear()
-    t = np.arange(0, len(data)) / sample_rate
-    time_plot.plot(t[2:][:-2], data[2:][:-2], pen='b')
-    if num_events >= 2:
-        # Plotting start and end points
-        time_plot.plot(t[start_points], data[start_points], pen=None, symbol='o', symbolBrush='g',
-                       symbolSize=10)
-        time_plot.plot(t[end_points], data[end_points], pen=None, symbol='o', symbolBrush='r', symbolSize=10)
-    time_plot.autoRange()
-
-    # Updating satistics text
-    mean_delta = round(np.mean(deltas) * BILLION, 2)
-    median_duration = round(float(np.median(durations)), 2)
-    event_rate = round(num_events / t[-1], 1)
-    ui.eventcounterlabel.setText('Events:' + str(num_events))
-    ui.meandelilabel.setText('Deli:' + str(mean_delta) + ' nA')
-    ui.meandwelllabel.setText('Dwell:' + str(median_duration) + u' μs')
-    ui.meandtlabel.setText('Rate:' + str(event_rate) + ' events/s')
-
-    # Dataframe containing all information
-    sdf = sdf[sdf.fn != info_file_name]
-    fn = pd.Series([info_file_name] * num_events)
-    color = pd.Series([pg.colorTuple(cb.color())] * num_events)
-
-    sdf = sdf.append(pd.DataFrame({'fn': fn, 'color': color, 'deli': deltas,
-                                   'frac': frac, 'durations': durations,
-                                   'dt': dt, 'stdev': noise, 'startpoints': start_points,
-                                   'endpoints': end_points}), ignore_index=True)
-
-    # I think below should be trying to show only the points associated with current file
-    # But I'm not really sure
-    # try:
-    #     durations_plot.data = durations_plot.data[np.where(np.array(sdf.fn) != info_file_name)]
-    # except Exception as e:
-    #     print(e)
-    #     raise IndexError
-    durations_plot.addPoints(x=np.log10(durations), y=frac, symbol='o', brush=(cb.color()), pen=None, size=10)
-    # w1 is window 1???
-    w1.addItem(durations_plot)
-    w1.setLogMode(x=True, y=False)
-    w1.autoRange()
-    w1.setRange(yRange=[0, 1])
-
-    ui.scatterplot.update()
-
-    update_histograms(sdf, ui, events, w2, w3, w4, w5)
-    return sdf
+    # sdf = sdf.append(pd.DataFrame({'fn': fn, 'color': color, 'deli': deltas,
+    #                                'frac': frac, 'durations': durations,
+    #                                'dt': dt, 'stdev': noise, 'startpoints': start_points,
+    #                                'endpoints': end_points}), ignore_index=True)
+    #
+    # # I think below should be trying to show only the points associated with current file
+    # # But I'm not really sure
+    # # try:
+    # #     durations_plot.data = durations_plot.data[np.where(np.array(sdf.fn) != info_file_name)]
+    # # except Exception as e:
+    # #     print(e)
+    # #     raise IndexError
+    # durations_plot.addPoints(x=np.log10(durations), y=frac, symbol='o', brush=(cb.color()), pen=None, size=10)
+    # # w1 is window 1???
+    # w1.addItem(durations_plot)
+    # w1.setLogMode(x=True, y=False)
+    # w1.autoRange()
+    # w1.setRange(yRange=[0, 1])
+    #
+    # ui.scatterplot.update()
+    #
+    # update_histograms(sdf, ui, events, w2, w3, w4, w5)
+    # return sdf
 
 
 def converging_baseline(data, sigma=1, tol=0.001):
@@ -386,9 +348,3 @@ def slope_crawl(data, start, direction='forward', comparison='max'):
 
 
 BILLION = 10 ** 9  # Hopefully makes reading clearer
-
-
-
-
-
-

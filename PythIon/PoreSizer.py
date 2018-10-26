@@ -1,14 +1,16 @@
 # -*- coding: utf8 -*-
 import sys
 import numpy as np
+from PyQt5 import QtWidgets
+
 from PythIon.Widgets.PoreSizerWidget import *
 # from PyQt5 import QtGui
 
 
-class PoreSizer(QtGui.QWidget):
+class PoreSizer(QtWidgets.QWidget):
 
     def __init__(self, master=None):
-        QtGui.QWidget.__init__(self, master)
+        QtWidgets.QWidget.__init__(self, master)
         self.ui_pore_size = Ui_PoreSizerWidget()
         self.ui_pore_size.setup_ui(self)
         
@@ -61,7 +63,7 @@ class PoreSizer(QtGui.QWidget):
 
 if __name__ == "__main__":
     global myapp_sc
-    app_sc = QtGui.QApplication(sys.argv)
+    myapp_sc = QtWidgets.QApplication(sys.argv)
     myapp_sc = PoreSizer()
     myapp_sc.show()
     sys.exit(app_sc.exec_())
